@@ -1,0 +1,45 @@
+# Environment
+.env
+.env.local
+.env.production
+.env.example
+
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Databases
+*.db
+*.sqlite3
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Next.js
+.next/
+out/
+.turbo/
+*.tsbuildinfo
+next-env.d.ts
+
+# Uploads / user data
+hc/backend/uploads/
+hc/uploads/
+
+# Logs
+*.log
+
+# IDE
+.vscode/settings.json
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
