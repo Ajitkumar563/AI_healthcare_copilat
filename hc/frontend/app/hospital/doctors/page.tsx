@@ -14,8 +14,9 @@ import { ToastContainer, useToast } from "@/components/Toast";
 import { hospitalApi, authApi } from "@/lib/api";
 
 interface Doctor {
-  id: string; name: string; specialty: string; experience_years: number;
-  rating: number; total_patients: number; appointments_this_month: number;
+  id: string; name: string; specialty: string; qualification?: string;
+  experience_years: number; rating: number; total_patients: number;
+  appointments_this_month: number;
 }
 
 interface Credentials { email: string; temp_password: string; }
@@ -26,6 +27,9 @@ export default function HospitalDoctorsPage() {
 
   const [userName, setUserName] = useState("");
   const [role, setRole] = useState("");
+  const [doctorId, setDoctorId] = useState("");
+  const [doctorEmail, setDoctorEmail] = useState("");
+  const [doctorSpecialty, setDoctorSpecialty] = useState("");
   const [doctors, setDoctors] = useState<Doctor[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -50,6 +54,10 @@ export default function HospitalDoctorsPage() {
         if (u.role === "admin") {
           const res = await hospitalApi.doctors().catch(() => null);
           if (res) setDoctors(res.data);
+        } else if (u.role === "doctor") {
+          setDoctorId(u.id || "");
+          setDoctorEmail(u.email || "");
+          setDoctorSpecialty(u.specialty || "");
         }
       } catch { router.push("/hospital/login"); }
       finally { setLoading(false); }
@@ -134,12 +142,59 @@ export default function HospitalDoctorsPage() {
       </div>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6">
-        {role !== "admin" ? (
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-10 text-center">
-            <Stethoscope className="w-10 h-10 text-gray-200 mx-auto mb-3" />
-            <p className="text-sm text-gray-400">Doctor directory is visible to admins only.</p>
-          </div>
-        ) : (
+        {role === "doctor" ? (
+          <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}
+            className="space-y-4">
+            {/* Doctor profile card */}
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+              <div className="h-1 w-full" style={{ background: "linear-gradient(135deg,#7C3AED,#A78BFA)" }} />
+              <div className="p-6 flex items-center gap-5">
+                <div className="w-16 h-16 rounded-2xl flex items-center justify-center text-white text-xl font-extrabold shrink-0"
+                  style={{ background: "linear-gradient(135deg,#7C3AED,#A78BFA)" }}>
+                  {userName.replace("Dr. ", "").split(" ").map((n: string) => n[0]).join("").substring(0, 2).toUpperCase()}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <h2 className="text-lg font-extrabold text-gray-900">{userName}</h2>
+                  {doctorSpecialty && <p className="text-sm text-purple-600 font-semibold">{doctorSpecialty}</p>}
+                  {doctorEmail && <p className="text-xs text-gray-400 mt-0.5">{doctorEmail}</p>}
+                </div>
+                <div className="shrink-0 flex items-center gap-2">
+                  <span className="inline-flex items-center gap-1 text-xs font-bold text-purple-600 bg-purple-50 border border-purple-100 px-3 py-1.5 rounded-full">
+                    <Stethoscope className="w-3.5 h-3.5" /> Doctor
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Quick actions */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <Link href={doctorId ? `/hospital/doctors/${doctorId}` : "/hospital/dashboard"}
+                className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex items-center gap-4 hover:border-purple-200 hover:bg-purple-50/30 transition-all group">
+                <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
+                  style={{ background: "linear-gradient(135deg,#7C3AED,#A78BFA)" }}>
+                  <TrendingUp className="w-5 h-5 text-white" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="font-bold text-gray-800 text-sm">My Analytics</p>
+                  <p className="text-xs text-gray-400">Patient stats, appointments & ratings</p>
+                </div>
+                <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-purple-500 transition-colors shrink-0" />
+              </Link>
+
+              <Link href="/hospital/patients"
+                className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex items-center gap-4 hover:border-purple-200 hover:bg-purple-50/30 transition-all group">
+                <div className="w-10 h-10 rounded-xl bg-purple-50 border border-purple-100 flex items-center justify-center shrink-0">
+                  <Stethoscope className="w-5 h-5 text-purple-600" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="font-bold text-gray-800 text-sm">My Patients</p>
+                  <p className="text-xs text-gray-400">View assigned patient records</p>
+                </div>
+                <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-purple-500 transition-colors shrink-0" />
+              </Link>
+            </div>
+          </motion.div>
+        ) : role === "admin" ? (
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
             <div className="h-1 w-full" style={{ background: "linear-gradient(135deg,#7C3AED,#A78BFA)" }} />
 
@@ -208,7 +263,7 @@ export default function HospitalDoctorsPage() {
               )}
             </div>
           </div>
-        )}
+        ) : null}
       </main>
 
       {/* Invite Doctor Modal */}

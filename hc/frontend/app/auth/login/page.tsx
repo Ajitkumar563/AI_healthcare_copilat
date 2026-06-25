@@ -197,6 +197,7 @@ export default function LoginPage() {
                     type="text" required value={name} onChange={e => setName(e.target.value)}
                     placeholder="Prarthna Gautam"
                     className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-[var(--primary)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/10 text-sm transition-all"
+                    suppressHydrationWarning
                   />
                 </div>
                 <div>
@@ -207,6 +208,7 @@ export default function LoginPage() {
                       type="email" required value={email} onChange={e => setEmail(e.target.value)}
                       placeholder="you@example.com"
                       className="w-full pl-11 pr-4 py-3 rounded-xl border border-gray-200 focus:border-[var(--primary)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/10 text-sm transition-all"
+                      suppressHydrationWarning
                     />
                   </div>
                 </div>
@@ -256,6 +258,7 @@ export default function LoginPage() {
                     value={otp} onChange={e => setOtp(e.target.value.replace(/\D/g, ""))}
                     placeholder="000000"
                     className="w-full px-4 py-4 rounded-xl border border-gray-200 focus:border-[var(--primary)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/10 text-center text-3xl tracking-[0.6em] font-bold transition-all"
+                    suppressHydrationWarning
                   />
                 </div>
 

@@ -11,7 +11,7 @@ python-multipart
 python-dotenv
 pydantic
 pydantic-settings
-google-generativeai
+google-genai
 openai
 aiofiles
 httpx

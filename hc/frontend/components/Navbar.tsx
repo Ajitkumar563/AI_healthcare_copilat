@@ -7,6 +7,7 @@ import { LogOut, Menu, X, Globe } from "lucide-react";
 import Cookies from "js-cookie";
 import { useLanguage } from "@/lib/i18n/LanguageContext";
 import type { Language, TranslationKey } from "@/lib/i18n/translations";
+import NotificationsCenter from "@/components/NotificationsCenter";
 
 const NAV_LINKS: { href: string; tkey: TranslationKey }[] = [
   { href: "/dashboard",         tkey: "nav_dashboard"        },
@@ -147,6 +148,9 @@ export default function Navbar({ userName }: { userName?: string }) {
                 </div>
               )}
             </div>
+
+            {/* Notifications */}
+            <NotificationsCenter />
 
             {/* User avatar */}
             {name && (

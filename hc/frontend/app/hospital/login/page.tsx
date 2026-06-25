@@ -65,6 +65,7 @@ export default function HospitalLoginPage() {
                 value={email} onChange={e => setEmail(e.target.value)}
                 placeholder="admin@hospital.com"
                 className="w-full pl-11 pr-4 py-3 rounded-xl border border-gray-200 focus:border-[var(--primary)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/10 text-sm transition-all"
+                suppressHydrationWarning
               />
             </div>
           </div>
@@ -78,6 +79,7 @@ export default function HospitalLoginPage() {
                 value={password} onChange={e => setPassword(e.target.value)}
                 placeholder="Your password"
                 className="w-full pl-11 pr-10 py-3 rounded-xl border border-gray-200 focus:border-[var(--primary)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/10 text-sm transition-all"
+                suppressHydrationWarning
               />
               <button
                 type="button"

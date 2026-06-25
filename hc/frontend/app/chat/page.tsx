@@ -544,12 +544,13 @@ export default function ChatPage() {
                       style={{ background: "var(--gradient-hero)" }}>
                       <Bot className="w-4 h-4 text-white" />
                     </div>
-                    <div className="bg-gray-50 border border-gray-100 rounded-2xl rounded-tl-sm px-5 py-4 flex items-center gap-1.5">
+                    <div className="bg-gray-50 border border-gray-100 rounded-2xl rounded-tl-sm px-5 py-4 flex items-center gap-2">
                       {[0, 1, 2].map(i => (
                         <motion.span key={i} className="w-2 h-2 rounded-full bg-gray-300"
                           animate={{ y: [0, -5, 0] }}
                           transition={{ duration: 0.8, repeat: Infinity, delay: i * 0.15 }} />
                       ))}
+                      <span className="text-xs text-gray-400 ml-1">Sahaay AI is thinking...</span>
                     </div>
                   </div>
                 )}

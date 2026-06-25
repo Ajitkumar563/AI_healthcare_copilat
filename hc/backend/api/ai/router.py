@@ -99,29 +99,22 @@ class AIUnavailableError(Exception):
     pass
 
 
-def _get_gemini_model(system_instruction: str | None = None):
-    """Lazy-initialise a Gemini GenerativeModel.
+def _get_gemini_client():
+    """Lazy-initialise a google.genai Client.
 
     Raises AIUnavailableError if the key is not configured.
-    Passes an optional system_instruction for chat-style endpoints.
     """
     api_key = os.getenv("GEMINI_API_KEY", "")
     if not api_key or api_key == "your-gemini-api-key-here":
         raise AIUnavailableError("GEMINI_API_KEY is not set in .env")
 
     try:
-        import google.generativeai as genai
-        genai.configure(api_key=api_key)
-        if system_instruction:
-            return genai.GenerativeModel(
-                "gemini-2.5-flash",
-                system_instruction=system_instruction,
-            )
-        return genai.GenerativeModel("gemini-2.5-flash")
+        from google import genai
+        return genai.Client(api_key=api_key)
     except ImportError:
         raise AIUnavailableError(
-            "google-generativeai is not installed. "
-            "Run: pip install google-generativeai"
+            "google-genai is not installed. "
+            "Run: pip install google-genai"
         )
 
 
@@ -146,9 +139,12 @@ def _is_quota_error(e: Exception) -> bool:
 
 def call_gemini(prompt: str) -> str:
     """Call Gemini with a text prompt and return the response text."""
-    model = _get_gemini_model()
+    client = _get_gemini_client()
     try:
-        response = model.generate_content(prompt)
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=prompt,
+        )
         return response.text.strip()
     except AIUnavailableError:
         raise
@@ -209,22 +205,23 @@ def call_gemini_json(prompt: str) -> dict:
         raise AIUnavailableError("GEMINI_API_KEY is not set in .env")
 
     try:
-        import google.generativeai as genai
+        from google import genai
+        from google.genai import types
     except ImportError:
         raise AIUnavailableError(
-            "google-generativeai is not installed. Run: pip install google-generativeai"
+            "google-genai is not installed. Run: pip install google-genai"
         )
 
-    genai.configure(api_key=api_key)
-    model = genai.GenerativeModel(
-        "gemini-2.5-flash",
-        generation_config=genai.GenerationConfig(
-            response_mime_type="application/json"
-        ),
-    )
+    client = genai.Client(api_key=api_key)
 
     try:
-        response = model.generate_content(prompt)
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json"
+            ),
+        )
         raw = response.text.strip()
     except Exception as e:
         if _is_quota_error(e):
@@ -251,28 +248,29 @@ def call_gemini_multimodal_json(prompt: str, image_bytes: bytes) -> dict:
     """
     try:
         import PIL.Image
-        import google.generativeai as genai
+        from google import genai
+        from google.genai import types
     except ImportError:
         raise AIUnavailableError(
-            "google-generativeai or Pillow not installed. "
-            "Run: pip install google-generativeai Pillow"
+            "google-genai or Pillow not installed. "
+            "Run: pip install google-genai Pillow"
         )
 
     api_key = os.getenv("GEMINI_API_KEY", "")
     if not api_key or api_key == "your-gemini-api-key-here":
         raise AIUnavailableError("GEMINI_API_KEY is not set in .env")
 
-    genai.configure(api_key=api_key)
-    model = genai.GenerativeModel(
-        "gemini-2.5-flash",
-        generation_config=genai.GenerationConfig(
-            response_mime_type="application/json"
-        ),
-    )
-
+    client = genai.Client(api_key=api_key)
     image = PIL.Image.open(io.BytesIO(image_bytes))
+
     try:
-        response = model.generate_content([prompt, image])
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=[prompt, image],
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json"
+            ),
+        )
         raw = response.text.strip()
     except Exception as e:
         if _is_quota_error(e):
@@ -812,18 +810,23 @@ RULES:
 4. {lang_instruction}
 5. Be warm, clear, and use simple non-medical language."""
 
-        model = _get_gemini_model(system_instruction=system_prompt)
+        from google.genai import types
+        client = _get_gemini_client()
 
         # Gemini uses "model" instead of "assistant" for the AI role in history
         history_for_gemini = [
-            {
-                "role": "user" if m.role == "user" else "model",
-                "parts": [m.content],
-            }
+            types.Content(
+                role="user" if m.role == "user" else "model",
+                parts=[types.Part.from_text(m.content)],
+            )
             for m in request.history
         ]
 
-        chat = model.start_chat(history=history_for_gemini)
+        chat = client.chats.create(
+            model="gemini-2.5-flash",
+            config=types.GenerateContentConfig(system_instruction=system_prompt),
+            history=history_for_gemini,
+        )
         response = chat.send_message(request.message)
         reply = response.text.strip()
 
@@ -1415,28 +1418,28 @@ async def second_opinion(request: SecondOpinionRequest):
         return {"success": False, "ai_available": False, "message": "GEMINI_API_KEY is not configured."}
 
     try:
-        import google.generativeai as genai
+        from google import genai
+        from google.genai import types
     except ImportError:
-        return {"success": False, "ai_available": False, "message": "google-generativeai not installed."}
+        return {"success": False, "ai_available": False, "message": "google-genai not installed."}
 
-    genai.configure(api_key=api_key)
+    client = genai.Client(api_key=api_key)
     report_text = request.report_text[:4000]
 
     def _call_with_temp(temp: float) -> dict:
-        model = genai.GenerativeModel(
-            "gemini-2.5-flash",
-            generation_config=genai.GenerationConfig(
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=_SECOND_OPINION_PROMPT.format(
+                name=request.patient_name,
+                age=request.age,
+                report=report_text,
+            ),
+            config=types.GenerateContentConfig(
                 response_mime_type="application/json",
                 temperature=temp,
             ),
         )
-        raw = model.generate_content(
-            _SECOND_OPINION_PROMPT.format(
-                name=request.patient_name,
-                age=request.age,
-                report=report_text,
-            )
-        ).text.strip()
+        raw = response.text.strip()
         return json.loads(_clean_json_text(raw))
 
     try:

@@ -102,6 +102,7 @@ export default function HospitalRegisterPage() {
                     onChange={set("admin_password")}
                     placeholder="Min. 8 characters"
                     className="w-full pr-10 px-4 py-3 rounded-xl border border-gray-200 focus:border-[var(--primary)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/10 text-sm transition-all"
+                    suppressHydrationWarning
                   />
                   <button
                     type="button"
@@ -160,6 +161,7 @@ function Field({
         onChange={onChange}
         placeholder={placeholder}
         className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-[var(--primary)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/10 text-sm transition-all"
+        suppressHydrationWarning
       />
     </div>
   );

@@ -203,24 +203,24 @@ export default function DashboardPage() {
         setWaPhone("+91");
       } else {
         const msg: string = res.data?.message || "";
-        if (msg.toLowerCase().includes("token expired") || msg.toLowerCase().includes("token")) {
-          toast(
-            "WhatsApp token expired — please refresh at developers.facebook.com/apps",
-            "error"
-          );
+        const lower = msg.toLowerCase();
+        if (lower.includes("twilio") || lower.includes("not configured") || lower.includes("account_sid")) {
+          toast("WhatsApp not configured — add Twilio credentials to .env to enable this feature", "error");
+        } else if (lower.includes("token expired") || lower.includes("token")) {
+          toast("Session expired — please log in again.", "error");
         } else {
-          toast(msg || "Could not send WhatsApp message.", "error");
+          toast("WhatsApp unavailable — please try again later", "error");
         }
       }
     } catch (err: unknown) {
       const status = (err as { response?: { status?: number } })?.response?.status;
-      if (status === 401) {
-        toast(
-          "WhatsApp token expired — please refresh at developers.facebook.com/apps",
-          "error"
-        );
+      const errMsg = (err as { message?: string })?.message?.toLowerCase() ?? "";
+      if (errMsg.includes("twilio") || errMsg.includes("not configured")) {
+        toast("WhatsApp not configured — add Twilio credentials to .env to enable this feature", "error");
+      } else if (status === 401) {
+        toast("Session expired — please log in again.", "error");
       } else {
-        toast("Could not send WhatsApp message. Please try again.", "error");
+        toast("WhatsApp unavailable — please try again later", "error");
       }
     } finally {
       setWaSending(false);
@@ -383,6 +383,9 @@ export default function DashboardPage() {
       </div>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6 space-y-6">
+        {/* File input always in DOM so labels/htmlFor work from any section */}
+        <input type="file" id="file-upload" className="hidden" accept=".pdf,.jpg,.jpeg,.png"
+          onChange={e => { if (e.target.files?.[0]) { setFile(e.target.files[0]); setAnalysis(null); setFreshRisk(null); setUploadError(""); }}} />
 
         {/* Notification permission request — subtle, non-blocking */}
         <AnimatePresence>
@@ -534,7 +537,46 @@ export default function DashboardPage() {
           ))}
         </div>
 
+        {/* Welcome hero — new users with no reports and no file selected */}
+        {!loadingData && reports.length === 0 && !file && (
+          <motion.div
+            initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}
+            className="rounded-2xl border-2 border-dashed border-teal-200 bg-gradient-to-br from-teal-50/60 to-cyan-50/40 p-8 text-center"
+          >
+            <div className="w-16 h-16 rounded-2xl mx-auto mb-4 flex items-center justify-center"
+              style={{ background: "var(--gradient-hero)" }}>
+              <Upload className="w-7 h-7 text-white" />
+            </div>
+            <h3 className="text-lg font-extrabold text-gray-800 mb-1">Welcome to Sahaay! 👋</h3>
+            <p className="text-sm text-gray-500 mb-4 max-w-xs mx-auto">
+              Upload your first blood report or lab result to get instant AI-powered health insights.
+            </p>
+            <div className="flex flex-wrap items-center justify-center gap-2 mb-5">
+              {[
+                { icon: Sparkles, label: "AI Analysis",  color: "#0F766E" },
+                { icon: Activity, label: "Risk Scoring", color: "#7C3AED" },
+                { icon: MessageCircle, label: "Chat with AI", color: "#2563EB" },
+              ].map(({ icon: Icon, label, color }) => (
+                <span key={label}
+                  className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full border"
+                  style={{ color, borderColor: color + "33", background: color + "0D" }}>
+                  <Icon className="w-3.5 h-3.5" /> {label}
+                </span>
+              ))}
+            </div>
+            <label
+              htmlFor="file-upload"
+              className="cursor-pointer inline-flex items-center gap-2 text-sm font-bold text-white px-5 py-2.5 rounded-xl shadow-md transition-all hover:opacity-90"
+              style={{ background: "var(--gradient-hero)" }}
+            >
+              <Upload className="w-4 h-4" /> Upload your first report
+            </label>
+            <p className="text-xs text-gray-400 mt-3">PDF, JPG, PNG · Max 10 MB</p>
+          </motion.div>
+        )}
+
         {/* Upload + Analysis */}
+        {(loadingData || reports.length > 0 || !!file) && (
         <div className="grid lg:grid-cols-2 gap-6">
           <div className="bg-white rounded-2xl border border-gray-100 shadow-[var(--shadow-sm)] overflow-hidden">
             <div className="h-1 w-full" style={{ background: "var(--gradient-hero)" }} />
@@ -545,8 +587,6 @@ export default function DashboardPage() {
             <div className="p-6">
               <div onDragEnter={handleDrag} onDragLeave={handleDrag} onDragOver={handleDrag} onDrop={handleDrop}
                 className={`border-2 border-dashed rounded-2xl p-8 text-center transition-all ${dragActive ? "border-[var(--primary)] bg-teal-50" : "border-gray-200 hover:border-teal-300/60 hover:bg-gray-50/80"}`}>
-                <input type="file" id="file-upload" className="hidden" accept=".pdf,.jpg,.jpeg,.png"
-                  onChange={e => { if (e.target.files?.[0]) { setFile(e.target.files[0]); setAnalysis(null); setFreshRisk(null); setUploadError(""); }}} />
                 {!file ? (
                   <label htmlFor="file-upload" className="cursor-pointer block">
                     <div className="w-14 h-14 rounded-2xl mx-auto mb-4 flex items-center justify-center" style={{ background: "var(--gradient-hero)" }}>
@@ -721,6 +761,7 @@ export default function DashboardPage() {
             </div>
           </div>
         </div>
+        )}
 
         {/* Organ risk */}
         {displayRisk && (
@@ -755,7 +796,8 @@ export default function DashboardPage() {
           </motion.div>
         )}
 
-        {/* Recent Reports */}
+        {/* Recent Reports — hidden until there are reports to show */}
+        {(loadingData || reports.length > 0) && (
         <div className="bg-white rounded-2xl border border-gray-100 shadow-[var(--shadow-sm)] overflow-hidden">
           <div className="h-1 w-full" style={{ background: "var(--gradient-hero)" }} />
           <div className="px-6 pt-5 pb-4 border-b border-gray-50 flex items-center justify-between">
@@ -769,12 +811,7 @@ export default function DashboardPage() {
           </div>
           <div className="p-6">
             {loadingData ? <div className="space-y-3">{[1,2,3].map(i => <div key={i} className="h-16 rounded-xl skeleton" />)}</div>
-              : reports.length === 0 ? (
-                <div className="text-center py-12">
-                  <FileText className="w-10 h-10 text-gray-200 mx-auto mb-3" />
-                  <p className="text-sm text-gray-400">{t("no_reports")}</p>
-                </div>
-              ) : (
+              : (
                 <div className="space-y-2">
                   {reports.slice(0, 5).map(r => (
                     <motion.div key={r.id} whileHover={{ x: 2 }}
@@ -813,6 +850,7 @@ export default function DashboardPage() {
               )}
           </div>
         </div>
+        )}
 
         {/* Feature 1: Health Score History Chart */}
         {scoreHistory.length >= 2 && (
