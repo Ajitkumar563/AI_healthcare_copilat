@@ -15,18 +15,63 @@ Setup:
   4. For local dev, set WHATSAPP_SKIP_VALIDATION=true (skips signature check)
 """
 
+import asyncio
 import os
 import re
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import Response
+from pydantic import BaseModel
 from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database.db import get_db
 from models.models import User, Report, Reminder
 from api.ai.router import call_ai, AIUnavailableError
+from core.security import get_current_user_dep
+from services.whatsapp_service import send_whatsapp_message, TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN
 
 router = APIRouter()
+
+
+class TestSendRequest(BaseModel):
+    to: str = ""   # E.164 digits, no '+', e.g. "917303554059". Defaults to TWILIO_WHATSAPP_TO if blank.
+
+
+@router.post("/test-send")
+async def test_send(
+    body: TestSendRequest,
+    current_user: User = Depends(get_current_user_dep),
+):
+    """Standalone Twilio connectivity check — sends 'Hello from Sahaay', then polls
+    Twilio for the real delivery status (queued -> delivered/failed) since the
+    initial API response only confirms Twilio *accepted* the request, not delivery."""
+    result = await send_whatsapp_message(
+        body.to, "Hello from Sahaay 👋 — this is a test message confirming your Twilio WhatsApp connection is working."
+    )
+    if not result.get("success"):
+        return result  # credential/config-level error — nothing to poll
+
+    # Give Twilio a moment to attempt delivery, then fetch the real status.
+    await asyncio.sleep(4)
+    try:
+        from twilio.rest import Client
+        client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
+        msg = client.messages(result["sid"]).fetch()
+        return {
+            "success": msg.status not in ("failed", "undelivered"),
+            "sid": msg.sid,
+            "delivery_status": msg.status,
+            "error_code": msg.error_code,
+            "error_message": msg.error_message,
+            "hint": (
+                "Twilio Sandbox error 63015 means the recipient hasn't joined your "
+                "sandbox or the 72-hour session expired — have them text "
+                "'join <your-sandbox-word>' to +14155238886 again."
+                if msg.error_code == 63015 else None
+            ),
+        }
+    except Exception as e:
+        return {"success": True, "sid": result["sid"], "delivery_status": "unknown", "poll_error": str(e)}
 
 _SKIP_VALIDATION = os.getenv("WHATSAPP_SKIP_VALIDATION", "false").lower() == "true"
 _AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN", "")

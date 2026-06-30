@@ -25,6 +25,7 @@ export default function ProfilePage() {
   const [gender, setGender] = useState("not specified");
   const [height, setHeight] = useState("");
   const [weight, setWeight] = useState("");
+  const [phone, setPhone] = useState("");
   const [medicalHistory, setMedicalHistory] = useState("");
   const [allergies, setAllergies] = useState("");
   const [medicines, setMedicines] = useState("");
@@ -45,6 +46,7 @@ export default function ProfilePage() {
         setGender(u.gender || "not specified");
         setHeight(u.height != null ? String(u.height) : "");
         setWeight(u.weight != null ? String(u.weight) : "");
+        setPhone(u.phone || "");
         setMedicalHistory(u.medical_history || "");
         setAllergies(u.allergies || "");
         setMedicines(u.current_medicines || "");
@@ -59,6 +61,7 @@ export default function ProfilePage() {
             setGender(p.gender || "not specified");
             setHeight(p.height || "");
             setWeight(p.weight || "");
+            setPhone(p.phone || "");
             setMedicalHistory(p.medicalHistory || "");
             setAllergies(p.allergies || "");
             setMedicines(p.medicines || "");
@@ -84,6 +87,7 @@ export default function ProfilePage() {
         gender: gender || null,
         height: height ? parseFloat(height) : null,
         weight: weight ? parseFloat(weight) : null,
+        phone: phone || null,
         medical_history: medicalHistory || null,
         allergies: allergies || null,
         current_medicines: medicines || null,
@@ -94,7 +98,7 @@ export default function ProfilePage() {
       // Fallback: save to cookie so data isn't lost if API is unreachable
       Cookies.set(
         "patient_profile",
-        JSON.stringify({ age, gender, height, weight, medicalHistory, allergies, medicines }),
+        JSON.stringify({ age, gender, height, weight, phone, medicalHistory, allergies, medicines }),
         { expires: 30 }
       );
       setSaved(true);
@@ -196,19 +200,34 @@ export default function ProfilePage() {
                 />
               </div>
             </div>
-            <div className="mt-4">
-              <label className="block text-sm font-medium text-[var(--charcoal)]/70 mb-1.5">
-                Weight (kg)
-              </label>
-              <input
-                type="number"
-                min="0"
-                value={weight}
-                onChange={(e) => setWeight(e.target.value)}
-                placeholder="e.g. 60"
-                className="w-full sm:w-1/3 px-4 py-3 rounded-xl border border-[var(--sage)] focus:border-[var(--teal)] focus:outline-none focus:ring-2 focus:ring-[var(--teal)]/10 transition-all text-sm"
-                suppressHydrationWarning
-              />
+            <div className="mt-4 grid sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-[var(--charcoal)]/70 mb-1.5">
+                  Weight (kg)
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  value={weight}
+                  onChange={(e) => setWeight(e.target.value)}
+                  placeholder="e.g. 60"
+                  className="w-full px-4 py-3 rounded-xl border border-[var(--sage)] focus:border-[var(--teal)] focus:outline-none focus:ring-2 focus:ring-[var(--teal)]/10 transition-all text-sm"
+                  suppressHydrationWarning
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-[var(--charcoal)]/70 mb-1.5">
+                  Phone Number (for WhatsApp alerts)
+                </label>
+                <input
+                  type="tel"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  placeholder="+91XXXXXXXXXX"
+                  className="w-full px-4 py-3 rounded-xl border border-[var(--sage)] focus:border-[var(--teal)] focus:outline-none focus:ring-2 focus:ring-[var(--teal)]/10 transition-all text-sm"
+                  suppressHydrationWarning
+                />
+              </div>
             </div>
           </div>
 

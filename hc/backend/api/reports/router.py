@@ -1,3 +1,4 @@
+import asyncio
 import os
 import json
 import re
@@ -431,6 +432,33 @@ async def save_analysis(
         except Exception as notif_err:
             # Never let a notification failure roll back the analysis save.
             print(f"[Notifications] WARNING — could not create notification: {notif_err}")
+
+        # ── Fire-and-forget WhatsApp alert — same pattern as /api/ai/risk-score ──
+        try:
+            if current_user.phone:
+                phone = re.sub(r"[^\d]", "", current_user.phone)
+                if 10 <= len(phone) <= 15:
+                    risk_label = payload.get("risk_level", level).title()
+                    wa_message = (
+                        f"🚨 *{risk_label} Risk Alert* — Sahaay\n\n"
+                        f"Hi {current_user.name}, your latest report shows {risk_label} risk.\n"
+                        "Please consult a doctor as soon as possible.\n\n"
+                        "Open the Sahaay app for full details."
+                    )
+
+                    async def _send_wa():
+                        wa_result = await send_whatsapp_message(phone, wa_message)
+                        print(f"[WhatsApp] Emergency alert result for user {current_user.id!r}: {wa_result}")
+
+                    asyncio.create_task(_send_wa())
+                    print(f"[WhatsApp] Emergency alert dispatched to user {current_user.id!r}")
+                else:
+                    print(f"[WhatsApp] Skipped — invalid phone format for user {current_user.id!r}: {current_user.phone!r}")
+            else:
+                print(f"[WhatsApp] Skipped — no phone on file for user {current_user.id!r}")
+        except Exception as wa_err:
+            # Never let a WhatsApp failure roll back the analysis save.
+            print(f"[WhatsApp] WARNING — could not dispatch emergency alert: {wa_err}")
     else:
         print(f"[Notifications] No notification created (level={level!r} is not high/critical)")
 
