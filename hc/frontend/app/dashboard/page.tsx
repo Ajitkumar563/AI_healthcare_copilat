@@ -158,8 +158,13 @@ export default function DashboardPage() {
 
   // Seed notification permission state after mount (client-only)
   useEffect(() => {
-    if (isNotificationSupported()) setNotifPermission(Notification.permission);
-    else setNotifPermission("unsupported");
+    if (isNotificationSupported()) {
+      console.log("[EmergencyAlert] Page load — Notification.permission:", Notification.permission);
+      setNotifPermission(Notification.permission);
+    } else {
+      console.log("[EmergencyAlert] Page load — Notification API unsupported in this browser.");
+      setNotifPermission("unsupported");
+    }
   }, []);
 
   const handleEnableNotifications = async () => {
@@ -316,6 +321,11 @@ export default function DashboardPage() {
         const rd = riskRes.value.data.data as RiskData;
         setFreshRisk(rd); setLatestRisk(rd);
 
+        console.log("[EmergencyAlert] risk-score response — ai_available:", riskRes.value.data.ai_available, "risk_level:", rd.risk_level, "message:", riskRes.value.data.message);
+        if (riskRes.value.data.ai_available === false) {
+          console.log("[EmergencyAlert] AI is UNAVAILABLE — backend returned the static fallback risk data, which is never \"Critical\". Emergency banner/notification cannot fire until the Gemini API key/quota issue is fixed.");
+        }
+
         // Detect which organ systems are critical
         const ORGAN_LABELS: { key: keyof RiskData; name: string }[] = [
           { key: "liver_risk",    name: "Liver"    },
@@ -327,8 +337,10 @@ export default function DashboardPage() {
           .filter(o => (rd[o.key] as { level?: string })?.level?.toLowerCase() === "critical")
           .map(o => o.name);
         const isCritical = rd.risk_level?.toLowerCase() === "critical" || criticals.length > 0;
+        console.log("[EmergencyAlert] isCritical:", isCritical, "criticalSystems:", criticals);
 
         if (isCritical) {
+          console.log("[EmergencyAlert] Critical risk detected — calling showEmergencyNotification()");
           const alertMsg = criticals.length > 0
             ? `Critical risk detected in: ${criticals.join(", ")}. Please see a doctor immediately.`
             : "Critical overall health risk detected. Please consult a doctor immediately.";

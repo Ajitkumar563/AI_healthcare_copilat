@@ -17,11 +17,20 @@ export function getNotificationPermission(): NotificationPermission | null {
  * after the user has already granted or denied.
  */
 export async function requestNotificationPermission(): Promise<NotificationPermission | null> {
-  if (!isNotificationSupported()) return null;
-  if (Notification.permission !== "default") return Notification.permission;
+  if (!isNotificationSupported()) {
+    console.log("[Notifications] requestNotificationPermission — not supported in this browser.");
+    return null;
+  }
+  if (Notification.permission !== "default") {
+    console.log(`[Notifications] requestNotificationPermission — already "${Notification.permission}", not re-prompting.`);
+    return Notification.permission;
+  }
   try {
-    return await Notification.requestPermission();
-  } catch {
+    const result = await Notification.requestPermission();
+    console.log(`[Notifications] requestNotificationPermission — user responded: "${result}"`);
+    return result;
+  } catch (e) {
+    console.log("[Notifications] requestNotificationPermission — threw an error:", e);
     return null;
   }
 }
@@ -32,9 +41,18 @@ export async function requestNotificationPermission(): Promise<NotificationPermi
  * `requireInteraction: true` keeps it on screen until the user acts on it.
  */
 export function showEmergencyNotification(title: string, body: string): void {
-  if (!isNotificationSupported()) return;
-  if (Notification.permission !== "granted") return;
+  console.log("[Notifications] showEmergencyNotification called. supported:", isNotificationSupported(), "permission:", isNotificationSupported() ? Notification.permission : "n/a");
 
+  if (!isNotificationSupported()) {
+    console.log("[Notifications] Aborted — Notification API not supported in this browser.");
+    return;
+  }
+  if (Notification.permission !== "granted") {
+    console.log(`[Notifications] Aborted — permission is "${Notification.permission}", not "granted". User must click the enable-notifications banner first.`);
+    return;
+  }
+
+  console.log("[Notifications] Permission granted — firing new Notification() now.");
   const n = new Notification(title, {
     body,
     icon: "/favicon.ico",
