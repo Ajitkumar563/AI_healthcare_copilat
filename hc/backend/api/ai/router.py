@@ -94,7 +94,7 @@ class MedicineInteractionRequest(BaseModel):
 # ─────────────────────────────────────────────
 
 _MODEL_FAST = "gemini-2.0-flash"   # fast / cheap — most endpoints
-_MODEL_FULL = "gemini-1.5-pro"     # full reasoning — complex medical analysis
+_MODEL_FULL = "gemini-2.0-flash"   # complex medical analysis — gemini-1.5-pro is not available on this API key/version, use the verified-working model
 
 
 class AIUnavailableError(Exception):
