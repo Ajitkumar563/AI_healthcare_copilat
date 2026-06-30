@@ -37,7 +37,7 @@ export function AppointmentsChart({ data }: { data: MonthPoint[] }) {
         <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" vertical={false} />
         <XAxis dataKey="month" tickFormatter={fmtMonth} tick={{ fontSize: 10, fill: "#94A3B8" }} axisLine={false} tickLine={false} />
         <YAxis tick={{ fontSize: 10, fill: "#94A3B8" }} axisLine={false} tickLine={false} />
-        <Tooltip {...tip} formatter={(v: number) => [v, "Appointments"]} labelFormatter={fmtMonth} />
+        <Tooltip {...tip} formatter={(v) => [Number(v ?? 0), "Appointments"]} labelFormatter={(m) => fmtMonth(String(m ?? ""))} />
         <Line type="monotone" dataKey="count" stroke="#0F766E" strokeWidth={2.5}
           dot={{ fill: "#0F766E", r: 4, strokeWidth: 0 }}
           activeDot={{ r: 6, fill: "#0F766E", stroke: "#fff", strokeWidth: 2 }} />
@@ -61,7 +61,7 @@ export function RevenueChart({ data }: { data: MonthPoint[] }) {
         <XAxis dataKey="month" tickFormatter={fmtMonth} tick={{ fontSize: 10, fill: "#94A3B8" }} axisLine={false} tickLine={false} />
         <YAxis tick={{ fontSize: 10, fill: "#94A3B8" }} axisLine={false} tickLine={false}
           tickFormatter={(v: number) => `₹${(v / 1000).toFixed(0)}k`} />
-        <Tooltip {...tip} formatter={(v: number) => [`₹${v.toLocaleString("en-IN")}`, "Revenue"]} labelFormatter={fmtMonth} />
+        <Tooltip {...tip} formatter={(v) => [`₹${Number(v ?? 0).toLocaleString("en-IN")}`, "Revenue"]} labelFormatter={(m) => fmtMonth(String(m ?? ""))} />
         <Area type="monotone" dataKey="amount" stroke="#7C3AED" strokeWidth={2.5} fill="url(#revGrad)" />
       </AreaChart>
     </ResponsiveContainer>
@@ -76,7 +76,7 @@ export function SpecialtyChart({ data }: { data: SpecialtyPoint[] }) {
         <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" horizontal={false} />
         <XAxis type="number" tick={{ fontSize: 10, fill: "#94A3B8" }} axisLine={false} tickLine={false} />
         <YAxis type="category" dataKey="specialty" tick={{ fontSize: 11, fill: "#475569" }} axisLine={false} tickLine={false} width={110} />
-        <Tooltip {...tip} formatter={(v: number) => [v, "Appointments"]} />
+        <Tooltip {...tip} formatter={(v) => [Number(v ?? 0), "Appointments"]} />
         <Bar dataKey="count" radius={[0, 6, 6, 0]}>
           {data.map((_, i) => (
             <Cell key={i} fill={SPECIALTY_COLORS[i % SPECIALTY_COLORS.length]} />
@@ -101,7 +101,7 @@ export function AIUsageChart({ data }: { data: MonthPoint[] }) {
         <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" vertical={false} />
         <XAxis dataKey="month" tickFormatter={fmtMonth} tick={{ fontSize: 10, fill: "#94A3B8" }} axisLine={false} tickLine={false} />
         <YAxis tick={{ fontSize: 10, fill: "#94A3B8" }} axisLine={false} tickLine={false} />
-        <Tooltip {...tip} formatter={(v: number) => [v, "AI Calls"]} labelFormatter={fmtMonth} />
+        <Tooltip {...tip} formatter={(v) => [Number(v ?? 0), "AI Calls"]} labelFormatter={(m) => fmtMonth(String(m ?? ""))} />
         <Area type="monotone" dataKey="count" stroke="#0369A1" strokeWidth={2.5} fill="url(#aiGrad)" />
       </AreaChart>
     </ResponsiveContainer>
@@ -122,7 +122,7 @@ export function PatientsChart({ data }: { data: MonthPoint[] }) {
         <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" vertical={false} />
         <XAxis dataKey="month" tickFormatter={fmtMonth} tick={{ fontSize: 10, fill: "#94A3B8" }} axisLine={false} tickLine={false} />
         <YAxis tick={{ fontSize: 10, fill: "#94A3B8" }} axisLine={false} tickLine={false} />
-        <Tooltip {...tip} formatter={(v: number) => [v, "Active Patients"]} labelFormatter={fmtMonth} />
+        <Tooltip {...tip} formatter={(v) => [Number(v ?? 0), "Active Patients"]} labelFormatter={(m) => fmtMonth(String(m ?? ""))} />
         <Area type="monotone" dataKey="count" stroke="#059669" strokeWidth={2.5} fill="url(#ptGrad)" />
       </AreaChart>
     </ResponsiveContainer>

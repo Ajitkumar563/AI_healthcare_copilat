@@ -219,11 +219,6 @@ export default function ComparePage() {
       return;
     }
 
-    console.log("[Compare] Starting comparison", {
-      report1: report1.file_name, text1Len: report1.raw_text.length,
-      report2: report2.file_name, text2Len: report2.raw_text.length,
-    });
-
     setComparing(true); setRows([]); setSummary("");
     try {
       const payload = {
@@ -234,19 +229,12 @@ export default function ComparePage() {
         date_2: new Date(report2.created_at).toLocaleDateString("en-IN"),
         language,
       };
-      console.log("[Compare] Sending to /api/ai/compare, payload lengths:", {
-        text1: payload.report_text_1.length, text2: payload.report_text_2.length,
-      });
 
       const res = await aiApi.compare(payload);
       const responseData = res.data as {
         success: boolean; ai_available: boolean; message?: string;
         data?: { ai_summary?: string; improved?: Record<string, string | number>[]; worsened?: Record<string, string | number>[]; stable?: Record<string, string | number>[] };
       };
-
-      console.log("[Compare] Response:", {
-        success: responseData.success, ai_available: responseData.ai_available, message: responseData.message,
-      });
 
       // Backend returns HTTP 200 even when AI is unavailable — must check success flag explicitly
       if (!responseData.success || !responseData.ai_available) {

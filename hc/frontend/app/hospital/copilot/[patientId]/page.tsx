@@ -7,7 +7,7 @@ import {
   ArrowLeft, Brain, Stethoscope, FileText, Loader2,
   AlertTriangle, ChevronRight, CheckCircle2, ShieldAlert,
   Pill, ClipboardList, Calendar, Microscope, Heart,
-  User, Activity, RefreshCw, ChevronDown, Info, Eye,
+  User, Activity, RefreshCw, ChevronDown, Info, Eye, Clock,
 } from "lucide-react";
 import Cookies from "js-cookie";
 import HospitalNavbar from "@/components/HospitalNavbar";

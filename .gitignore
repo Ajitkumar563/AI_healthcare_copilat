@@ -2,7 +2,6 @@
 .env
 .env.local
 .env.production
-.env.example
 
 # Python
 venv/

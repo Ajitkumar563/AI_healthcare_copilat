@@ -38,9 +38,14 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Healthcare Copilot API", version="1.0.0", lifespan=lifespan)
 
+_allowed_origins = [
+    o.strip() for o in os.getenv("ALLOWED_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000").split(",")
+    if o.strip()
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=_allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

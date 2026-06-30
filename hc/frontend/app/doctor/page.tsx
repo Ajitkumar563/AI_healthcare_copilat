@@ -159,7 +159,6 @@ export default function DoctorPage() {
 
   const handleGenerateSOAP = async () => {
     if (!selectedReport) return;
-    console.log("[SOAP] Generating for report:", selectedReport.id, "has raw_text:", !!selectedReport.raw_text);
     setLoadingSOAP(true);
     setSoap(null);
     setSoapError("");
@@ -190,7 +189,6 @@ export default function DoctorPage() {
 
   const handleGenerateSummary = async () => {
     if (!selectedReport) return;
-    console.log("[Summary] Generating for report:", selectedReport.id, "has raw_text:", !!selectedReport.raw_text);
     setLoadingSummary(true);
     setSummary(null);
     setSummaryError("");
