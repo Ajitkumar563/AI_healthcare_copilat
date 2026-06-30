@@ -16,6 +16,11 @@ from api.ai.router import router as ai_router
 from api.reminders.router import router as reminders_router
 from api.family.router import router as family_router
 from api.hospital.router import router as hospital_router
+from api.notifications.router import router as notifications_router
+from api.whatsapp.router import router as whatsapp_router
+from api.doctor_copilot.router import router as copilot_router
+from api.predictive.router import router as predictive_router
+from api.billing.router import router as billing_router
 
 
 @asynccontextmanager
@@ -51,7 +56,12 @@ app.include_router(appointments_router, prefix="/api/appointments", tags=["Appoi
 app.include_router(ai_router,        prefix="/api/ai",        tags=["AI"])
 app.include_router(reminders_router, prefix="/api/reminders", tags=["Reminders"])
 app.include_router(family_router,    prefix="/api/family",    tags=["Family"])
-app.include_router(hospital_router,  prefix="/api/hospital",  tags=["Hospital"])
+app.include_router(hospital_router,       prefix="/api/hospital",       tags=["Hospital"])
+app.include_router(notifications_router,  prefix="/api/notifications",  tags=["Notifications"])
+app.include_router(whatsapp_router,       prefix="/api/whatsapp",       tags=["WhatsApp"])
+app.include_router(copilot_router,        prefix="/api/doctor-copilot", tags=["Doctor Copilot"])
+app.include_router(predictive_router,     prefix="/api/predictive",     tags=["Predictive Risk"])
+app.include_router(billing_router,        prefix="/api/billing",        tags=["Billing"])
 
 
 @app.get("/")

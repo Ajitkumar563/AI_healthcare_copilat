@@ -3,15 +3,15 @@ import json
 import re
 import uuid
 from datetime import datetime
-from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
+from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, or_, delete as sa_delete
+from sqlalchemy import select, delete as sa_delete
 import io
 
 from database.db import get_db
-from models.models import Report, User, ReportParameter
+from models.models import Report, User, ReportParameter, Notification
 from core.security import get_current_user_dep, get_optional_user
 from services.ocr_service import extract_text
 from services.whatsapp_service import send_whatsapp_message, format_report_summary_message
@@ -45,6 +45,80 @@ _KNOWN_RANGES: dict[str, tuple[float | None, float | None]] = {
     "ferritin":          (12.0, 300.0),
     "bilirubin":         (None, 1.2),
 }
+
+
+# Maps common AI/lab-report name variants → canonical name used by the Trends page.
+# Keys are lower-cased; lookup is case-insensitive via .lower().strip().
+_NAME_NORMALISE: dict[str, str] = {
+    # Hemoglobin
+    "hemoglobin (hb)":                      "Hemoglobin",
+    "haemoglobin":                           "Hemoglobin",
+    "haemoglobin (hb)":                      "Hemoglobin",
+    # Vitamin D
+    "vitamin d (total)":                     "Vitamin D",
+    "vitamin d (25-oh vitamin d)":           "Vitamin D",
+    "vitamin d (25-oh)":                     "Vitamin D",
+    "25-oh vitamin d":                       "Vitamin D",
+    "25 oh vitamin d":                       "Vitamin D",
+    "vitamin d3":                            "Vitamin D",
+    "serum vitamin d":                       "Vitamin D",
+    # TSH
+    "thyroid (tsh)":                         "TSH",
+    "thyroid stimulating hormone":           "TSH",
+    "tsh (thyroid stimulating hormone)":     "TSH",
+    # HbA1c
+    "hba1c":                                 "HbA1c",
+    "glycated hemoglobin":                   "HbA1c",
+    "glycated haemoglobin":                  "HbA1c",
+    "hemoglobin a1c":                        "HbA1c",
+    "hba1c / glycated hemoglobin":           "HbA1c",
+    "hba1c, glycated hemoglobin":            "HbA1c",
+    # Fasting Glucose
+    "blood glucose (fasting)":               "Fasting Glucose",
+    "fasting blood glucose":                 "Fasting Glucose",
+    "fasting blood sugar":                   "Fasting Glucose",
+    "glucose (fasting)":                     "Fasting Glucose",
+    "glucose, fasting":                      "Fasting Glucose",
+    "blood sugar (fasting)":                 "Fasting Glucose",
+    "fasting glucose":                       "Fasting Glucose",
+    # Vitamin B12
+    "vitamin b12":                           "Vitamin B12",
+    "vitamin b-12":                          "Vitamin B12",
+    "b12":                                   "Vitamin B12",
+    "cobalamin":                             "Vitamin B12",
+    "serum vitamin b12":                     "Vitamin B12",
+    # Triglycerides
+    "triglycerides":                         "Triglycerides",
+    "triglyceride":                          "Triglycerides",
+    "serum triglycerides":                   "Triglycerides",
+    # SGPT / ALT
+    "sgpt":                                  "SGPT",
+    "alt":                                   "SGPT",
+    "alanine aminotransferase":              "SGPT",
+    "sgpt (alt)":                            "SGPT",
+    "alt (sgpt)":                            "SGPT",
+    # SGOT / AST
+    "sgot":                                  "SGOT",
+    "ast":                                   "SGOT",
+    "aspartate aminotransferase":            "SGOT",
+    "sgot (ast)":                            "SGOT",
+    "ast (sgot)":                            "SGOT",
+    # Creatinine
+    "creatinine":                            "Creatinine",
+    "serum creatinine":                      "Creatinine",
+    "creatinine (serum)":                    "Creatinine",
+    # Cholesterol
+    "total cholesterol":                     "Cholesterol",
+    "cholesterol (total)":                   "Cholesterol",
+    "serum cholesterol":                     "Cholesterol",
+    "cholesterol, total":                    "Cholesterol",
+}
+
+
+def _normalise_param_name(name: str) -> str:
+    """Map AI-generated parameter name variants to the canonical name used by
+    the Trends page.  Falls back to the original when no match is found."""
+    return _NAME_NORMALISE.get(name.lower().strip(), name)
 
 
 def _reference_range(name: str) -> tuple[float | None, float | None]:
@@ -81,6 +155,7 @@ def _upsert_parameters(
         param_name: str = (f.get("parameter") or "").strip()
         if not param_name:
             continue
+        param_name = _normalise_param_name(param_name)
         numeric, unit = _parse_finding_value(f.get("value"))
         if numeric is None:
             continue
@@ -159,6 +234,7 @@ ALLOWED_TYPES = ["application/pdf", "image/jpeg", "image/png", "image/jpg"]
 @router.post("/upload")
 async def upload_report(
     file: UploadFile = File(...),
+    family_member_id: str | None = Form(None),
     db: AsyncSession = Depends(get_db),
     current_user: User | None = Depends(get_optional_user),
 ):
@@ -185,6 +261,7 @@ async def upload_report(
     if current_user is not None:
         report = Report(
             user_id=current_user.id,
+            family_member_id=family_member_id or None,
             file_url=file_url,
             file_name=file.filename,
             file_size=len(file_bytes),
@@ -225,16 +302,15 @@ async def get_report_trends(
     current_user: User = Depends(get_current_user_dep),
     db: AsyncSession = Depends(get_db),
 ):
-    """Return numeric parameter values grouped by name across all approved reports."""
+    """Return numeric parameter values grouped by name across all of the user's reports.
+
+    Approval status is intentionally ignored: approval gates AI interpretation, not
+    objective lab values.  A patient should always see their own measurement history
+    regardless of whether a hospital doctor has reviewed the report.
+    """
     result = await db.execute(
         select(Report)
-        .where(
-            Report.user_id == current_user.id,
-            or_(
-                Report.approval_status == "approved",
-                Report.approval_status == None,  # noqa: E711  pre-migration rows
-            ),
-        )
+        .where(Report.user_id == current_user.id)
         .order_by(Report.created_at.asc())
     )
     reports = result.scalars().all()
@@ -329,6 +405,34 @@ async def save_analysis(
             _upsert_parameters(db, report_id, findings, report.raw_text)
         except Exception as exc:
             print(f"[Reports] Failed to upsert parameters for {report_id}: {exc}")
+
+    # Notify the patient when risk is high or critical.
+    # The frontend sends risk_level as "high" | "low" (mapped from analysis status),
+    # or as "High" | "Medium" | "Low" | "Critical" (from the risk-score endpoint).
+    # .lower() normalises both conventions before the membership check.
+    level = (payload.get("risk_level") or "").lower()
+    print(f"[Notifications] save_analysis reached — report_id={report_id!r}  "
+          f"raw_risk_level={payload.get('risk_level')!r}  normalised={level!r}")
+
+    if level in ("critical", "high"):
+        try:
+            db.add(Notification(
+                user_id=current_user.id,
+                type="emergency",
+                title="Critical Health Alert" if level == "critical" else "High Risk Detected",
+                message=(
+                    f"Your report shows {payload.get('risk_level', level).title()} risk. "
+                    "Please consult a doctor as soon as possible."
+                ),
+                action_url="/dashboard",
+            ))
+            await db.flush()   # send INSERT to DB now so errors surface within this request
+            print(f"[Notifications] Emergency notification created for user {current_user.id!r}")
+        except Exception as notif_err:
+            # Never let a notification failure roll back the analysis save.
+            print(f"[Notifications] WARNING — could not create notification: {notif_err}")
+    else:
+        print(f"[Notifications] No notification created (level={level!r} is not high/critical)")
 
     return {"message": "Analysis saved", "report_id": report_id}
 

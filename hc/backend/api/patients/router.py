@@ -1,13 +1,14 @@
 import json
-from fastapi import APIRouter, HTTPException, Depends
+from datetime import datetime, timedelta
+from fastapi import APIRouter, HTTPException, Depends, Query
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, or_
+from sqlalchemy.orm import selectinload
 
 from database.db import get_db
-from models.models import User, Report, Reminder, FamilyMember
+from models.models import User, Report, Reminder, FamilyMember, Appointment, Symptom
 from core.security import get_current_user_dep
-from sqlalchemy import or_
 
 router = APIRouter()
 
@@ -56,47 +57,86 @@ async def update_profile(
 
 @router.get("/timeline")
 async def get_timeline(
+    days: int = Query(default=0, ge=0, description="Limit to last N days; 0 = all time"),
     current_user: User = Depends(get_current_user_dep),
     db: AsyncSession = Depends(get_db),
 ):
-    """Aggregate reports and reminders into a unified chronological timeline."""
+    """Return all health events merged and sorted chronologically."""
+    cutoff: datetime | None = datetime.utcnow() - timedelta(days=days) if days > 0 else None
+    cutoff_str: str | None = cutoff.date().isoformat() if cutoff else None
 
-    reports_result = await db.execute(
-        select(Report)
-        .where(Report.user_id == current_user.id)
-        .order_by(Report.created_at.desc())
+    # ── Reports ──────────────────────────────────────────────────────────────
+    q_rep = select(Report).where(Report.user_id == current_user.id)
+    if cutoff:
+        q_rep = q_rep.where(Report.created_at >= cutoff)
+    reports = (await db.execute(q_rep.order_by(Report.created_at.desc()))).scalars().all()
+
+    # ── Reminders ────────────────────────────────────────────────────────────
+    q_rem = select(Reminder).where(Reminder.user_id == current_user.id)
+    if cutoff:
+        q_rem = q_rem.where(Reminder.created_at >= cutoff)
+    reminders = (await db.execute(q_rem.order_by(Reminder.created_at.desc()))).scalars().all()
+
+    # ── Symptoms ─────────────────────────────────────────────────────────────
+    q_sym = select(Symptom).where(Symptom.user_id == current_user.id)
+    if cutoff:
+        q_sym = q_sym.where(Symptom.created_at >= cutoff)
+    symptoms = (await db.execute(q_sym.order_by(Symptom.created_at.desc()))).scalars().all()
+
+    # ── Appointments (eager-load doctor to avoid lazy-load in async context) ─
+    q_apt = (
+        select(Appointment)
+        .options(selectinload(Appointment.doctor))
+        .where(Appointment.patient_id == current_user.id)
     )
-    reports = reports_result.scalars().all()
+    if cutoff_str:
+        q_apt = q_apt.where(Appointment.appointment_date >= cutoff_str)
+    apts = (
+        await db.execute(
+            q_apt.order_by(
+                Appointment.appointment_date.desc(),
+                Appointment.appointment_time.desc(),
+            )
+        )
+    ).scalars().all()
 
-    reminders_result = await db.execute(
-        select(Reminder)
-        .where(Reminder.user_id == current_user.id)
-        .order_by(Reminder.created_at.desc())
-    )
-    reminders = reminders_result.scalars().all()
-
-    events = []
+    events: list[dict] = []
 
     for r in reports:
-        approval_status = getattr(r, "approval_status", None) or "approved"
+        approval_status = r.approval_status or "approved"
         show_ai = approval_status == "approved"
-        date_label = r.created_at.strftime("%-d %b %Y") if r.created_at else "Uploaded"
-        title = r.file_name or f"Report — {date_label}"
         events.append({
             "id": r.id,
             "event_type": "report",
-            "title": title,
-            "report_type": r.report_type,
-            # Don't leak AI summary for reports pending doctor approval
-            "description": (r.ai_summary if show_ai else None) or "Report uploaded",
+            "title": r.file_name or "Lab Report",
+            "description": (
+                (r.ai_summary if show_ai else None)
+                or "Report uploaded — awaiting doctor review."
+            ),
             "event_date": r.created_at.isoformat() if r.created_at else None,
-            # risk_level is always shown — needed for emergency risk detection
             "risk_level": r.risk_level,
             "approval_status": approval_status,
             "metadata": {
-                "file_name": r.file_name,
+                "report_type": r.report_type,
                 "file_url": r.file_url,
                 "risk_score": r.risk_score,
+                "doctor_notes": r.doctor_notes if show_ai else None,
+            },
+        })
+
+    for sym in symptoms:
+        preview = sym.symptoms_text[:120] + ("…" if len(sym.symptoms_text) > 120 else "")
+        events.append({
+            "id": sym.id,
+            "event_type": "symptom",
+            "title": "Symptom Check",
+            "description": preview,
+            "event_date": sym.created_at.isoformat() if sym.created_at else None,
+            "risk_level": sym.risk_level,
+            "metadata": {
+                "symptoms_text": sym.symptoms_text,
+                "possible_conditions": sym.possible_conditions,
+                "ai_response": sym.ai_response,
             },
         })
 
@@ -111,13 +151,34 @@ async def get_timeline(
             "id": rem.id,
             "event_type": "reminder",
             "title": f"Medicine: {rem.medicine_name}",
-            "description": f"{rem.dosage or ''} — {rem.frequency}",
+            "description": f"{rem.dosage or 'Standard dose'} — {rem.frequency.replace('_', ' ')}",
             "event_date": rem.created_at.isoformat() if rem.created_at else None,
             "metadata": {
                 "times": times,
                 "duration": rem.duration,
+                "instructions": rem.instructions,
                 "missed_count": rem.missed_count,
                 "taken_today": rem.taken_today,
+            },
+        })
+
+    for apt in apts:
+        iso_dt = f"{apt.appointment_date}T{apt.appointment_time}:00"
+        doctor_name = apt.doctor.name if apt.doctor else "Unknown Doctor"
+        events.append({
+            "id": apt.id,
+            "event_type": "appointment",
+            "title": f"Dr. {doctor_name}",
+            "description": f"{apt.type.title()} appointment — {apt.status.replace('_', ' ').title()}",
+            "event_date": iso_dt,
+            "metadata": {
+                "doctor_name": doctor_name,
+                "doctor_specialty": apt.doctor.specialty if apt.doctor else None,
+                "appointment_date": apt.appointment_date,
+                "appointment_time": apt.appointment_time,
+                "type": apt.type,
+                "status": apt.status,
+                "reason": apt.reason,
             },
         })
 
@@ -163,7 +224,6 @@ async def get_health_score_history(
     current_user: User = Depends(get_current_user_dep),
     db: AsyncSession = Depends(get_db),
 ):
-    """Return health score over time for approved reports that have AI scores."""
     result = await db.execute(
         select(Report)
         .where(

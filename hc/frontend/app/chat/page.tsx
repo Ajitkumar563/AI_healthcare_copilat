@@ -22,14 +22,7 @@ interface ApiError { response?: { status?: number; data?: { message?: string; de
 
 type VoiceState = "idle" | "listening" | "processing" | "speaking";
 
-// Maps the app's language codes to BCP-47 locale tags for Web Speech APIs
-const VOICE_LANG_MAP: Record<string, string> = {
-  en: "en-IN",
-  hi: "hi-IN",
-  hinglish: "hi-IN",
-  ar: "ar-SA",
-  fr: "fr-FR",
-};
+import { VOICE_LANG_MAP } from "@/hooks/useVoice";
 
 function getVoiceLang(lang: string): string {
   return VOICE_LANG_MAP[lang] ?? "en-IN";

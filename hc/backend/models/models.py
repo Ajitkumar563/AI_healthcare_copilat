@@ -145,10 +145,12 @@ class Report(Base):
     reviewed_by: Mapped[str | None] = mapped_column(PgUUID(as_uuid=False), ForeignKey("users.id"), nullable=True)
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     doctor_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    family_member_id: Mapped[str | None] = mapped_column(PgUUID(as_uuid=False), ForeignKey("family_members.id"), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     user: Mapped["User"] = relationship("User", back_populates="reports", foreign_keys="[Report.user_id]")
     reviewer: Mapped["User | None"] = relationship("User", foreign_keys="[Report.reviewed_by]")
+    family_member: Mapped["FamilyMember | None"] = relationship("FamilyMember", back_populates="reports", foreign_keys="[Report.family_member_id]", lazy="select")
     parameters: Mapped[list["ReportParameter"]] = relationship("ReportParameter", back_populates="report", lazy="selectin", cascade="all, delete-orphan")
 
 
@@ -222,9 +224,11 @@ class FamilyMember(Base):
     conditions: Mapped[str | None] = mapped_column(Text, nullable=True)
     risk_level: Mapped[str] = mapped_column(String(20), default="Low")
     last_checkup: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    medicines: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     owner: Mapped["User"] = relationship("User", back_populates="family_members")
+    reports: Mapped[list["Report"]] = relationship("Report", back_populates="family_member", foreign_keys="[Report.family_member_id]", lazy="select")
 
 
 # ─── Doctor ───────────────────────────────────────────────────────────────────
@@ -275,3 +279,36 @@ class Appointment(Base):
 
     patient: Mapped["User"] = relationship("User")
     doctor: Mapped["Doctor"] = relationship("Doctor", back_populates="appointments")
+
+
+# ─── Subscription ────────────────────────────────────────────────────────────
+
+class Subscription(Base):
+    __tablename__ = "subscriptions"
+
+    id: Mapped[str] = mapped_column(PgUUID(as_uuid=False), primary_key=True, default=new_id)
+    hospital_id: Mapped[str] = mapped_column(PgUUID(as_uuid=False), ForeignKey("hospitals.id"), unique=True, index=True)
+    plan: Mapped[str] = mapped_column(String(20), default="free")        # free | pro | enterprise
+    status: Mapped[str] = mapped_column(String(20), default="active")    # active | expired
+    start_date: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    end_date: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    max_doctors: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    max_patients: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    hospital: Mapped["Hospital"] = relationship("Hospital")
+
+
+# ─── Notification ─────────────────────────────────────────────────────────────
+
+class Notification(Base):
+    __tablename__ = "notifications"
+
+    id: Mapped[str] = mapped_column(PgUUID(as_uuid=False), primary_key=True, default=new_id)
+    user_id: Mapped[str] = mapped_column(PgUUID(as_uuid=False), ForeignKey("users.id"), index=True)
+    type: Mapped[str] = mapped_column(String(30))  # emergency | report_approved | appointment | reminder
+    title: Mapped[str] = mapped_column(Text)
+    message: Mapped[str] = mapped_column(Text)
+    action_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_read: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

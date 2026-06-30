@@ -47,9 +47,10 @@ export const authApi = {
 // ─── Reports ─────────────────────────────────────────────────────────────────
 
 export const reportsApi = {
-  upload: (file: File) => {
+  upload: (file: File, familyMemberId?: string) => {
     const form = new FormData();
     form.append("file", file);
+    if (familyMemberId) form.append("family_member_id", familyMemberId);
     return api.post("/api/reports/upload", form, {
       headers: { "Content-Type": "multipart/form-data" },
     });
@@ -150,6 +151,7 @@ export const familyApi = {
     age?: number;
     gender?: string;
     conditions?: string;
+    medicines?: string;
     risk_level?: string;
     last_checkup?: string;
   }) => api.post("/api/family/", data),
@@ -160,6 +162,10 @@ export const familyApi = {
   delete: (id: string) => api.delete(`/api/family/${id}`),
 
   getComparison: () => api.get("/api/family/comparison"),
+
+  getSummary: (id: string) => api.get(`/api/family/${id}/summary`),
+
+  getReports: (id: string) => api.get(`/api/family/${id}/reports`),
 };
 
 // ─── Doctors & Appointments ──────────────────────────────────────────────────
@@ -205,6 +211,15 @@ export const hospitalApi = {
   stats: () =>
     api.get("/api/hospital/dashboard/stats"),
 
+  doctorStats: () =>
+    api.get("/api/hospital/dashboard/doctor-stats"),
+
+  patientTrends: (id: string) =>
+    api.get(`/api/hospital/patients/${id}/trends`),
+
+  sendFollowup: (patientId: string, message: string) =>
+    api.post(`/api/hospital/patients/${patientId}/followup`, { message }),
+
   patients: (params?: { search?: string; risk_level?: string }) =>
     api.get("/api/hospital/patients", { params }),
 
@@ -231,6 +246,18 @@ export const hospitalApi = {
 
   bulkAnalyze: (reportIds: string[]) =>
     api.post("/api/hospital/reports/bulk-analyze", { report_ids: reportIds }),
+
+  analytics: () =>
+    api.get("/api/hospital/analytics"),
+
+  departments: () =>
+    api.get("/api/hospital/departments"),
+
+  removeDoctor: (id: string) =>
+    api.delete(`/api/hospital/doctors/${id}`),
+
+  auditLogs: () =>
+    api.get("/api/hospital/audit-logs"),
 };
 
 // ─── Patients ────────────────────────────────────────────────────────────────
@@ -245,4 +272,32 @@ export const patientsApi = {
   getStats: () => api.get("/api/patients/stats"),
 
   getHealthScoreHistory: () => api.get("/api/patients/health-score-history"),
+};
+
+// ─── Doctor Copilot ──────────────────────────────────────────────────────────
+
+export const copilotApi = {
+  preConsultation: (patientId: string, language = "en") =>
+    api.post("/api/doctor-copilot/pre-consultation", { patient_id: patientId, language }),
+
+  suggestDiagnosis: (data: { patient_id: string; symptoms: string; report_text?: string; language?: string }) =>
+    api.post("/api/doctor-copilot/suggest-diagnosis", data),
+
+  draftPrescription: (data: { patient_id: string; diagnosis: string; symptoms?: string; language?: string }) =>
+    api.post("/api/doctor-copilot/draft-prescription", data),
+};
+
+// ─── Predictive Disease Risk ──────────────────────────────────────────────────
+
+export const predictiveApi = {
+  riskForecast: () => api.post("/api/predictive/risk-forecast"),
+};
+
+// ─── Billing & Subscription ───────────────────────────────────────────────────
+
+export const billingApi = {
+  getCurrent: () => api.get("/api/billing/current"),
+
+  upgrade: (plan: "free" | "pro" | "enterprise") =>
+    api.post("/api/billing/upgrade", { plan }),
 };

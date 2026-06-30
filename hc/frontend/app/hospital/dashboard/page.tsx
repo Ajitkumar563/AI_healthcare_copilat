@@ -8,6 +8,7 @@ import {
   Users, ShieldAlert, CalendarCheck, Stethoscope, TrendingUp,
   Search, X, Loader2, Copy, CheckCircle2, UserPlus, ChevronRight,
   Eye, FileText, ClipboardList, Zap, BarChart3, AlertTriangle,
+  Video, Clock, Activity, ExternalLink,
 } from "lucide-react";
 import Cookies from "js-cookie";
 import HospitalNavbar from "@/components/HospitalNavbar";
@@ -43,6 +44,26 @@ interface PendingReport {
   risk_level: string | null; ai_summary: string | null; created_at: string;
 }
 
+interface ScheduleEntry {
+  id: string;
+  patient_name: string;
+  patient_id: string;
+  appointment_time: string;
+  type: "video" | "in-person";
+  status: string;
+  reason: string | null;
+  video_url: string | null;
+}
+
+interface DoctorStats {
+  today_patients: number;
+  critical_cases: number;
+  pending_reviews: number;
+  upcoming_video: number;
+  new_reports: number;
+  today_schedule: ScheduleEntry[];
+}
+
 interface BulkReport {
   id: string; file_name: string; report_type: string; patient_name: string; created_at: string;
 }
@@ -66,6 +87,9 @@ export default function HospitalDashboard() {
   const [doctors, setDoctors] = useState<Doctor[]>([]);
   const [search, setSearch] = useState("");
   const [riskFilter, setRiskFilter] = useState("");
+
+  // Doctor-specific overview panel stats
+  const [doctorStats, setDoctorStats] = useState<DoctorStats | null>(null);
 
   // Pending reviews
   const [pendingReports, setPendingReports] = useState<PendingReport[]>([]);
@@ -113,6 +137,11 @@ export default function HospitalDashboard() {
         if (u.role === "admin") {
           const doctorsRes = await hospitalApi.doctors().catch(() => null);
           if (doctorsRes) setDoctors(doctorsRes.data);
+        }
+
+        if (u.role === "doctor") {
+          const drRes = await hospitalApi.doctorStats().catch(() => null);
+          if (drRes) setDoctorStats(drRes.data);
         }
 
         const pendingRes = await hospitalApi.getPendingReports().catch(() => null);
@@ -274,13 +303,232 @@ export default function HospitalDashboard() {
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6 space-y-6">
 
-        {/* Stats */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <StatCard label="Total Patients"      value={stats?.total_patients ?? "—"}          icon={<Users className="w-5 h-5" />}        gradient="linear-gradient(135deg,#0F766E,#06B6D4)" subtitle={`${stats?.new_patients_this_month ?? 0} new this month`} />
-          <StatCard label="High Risk"           value={stats?.high_risk_patients_count ?? "—"} icon={<ShieldAlert className="w-5 h-5" />}  gradient="linear-gradient(135deg,#DC2626,#F87171)" subtitle="need attention" />
-          <StatCard label="Today's Appointments" value={stats?.total_appointments_today ?? "—"} icon={<CalendarCheck className="w-5 h-5" />} gradient="linear-gradient(135deg,#7C3AED,#A78BFA)" subtitle={`${stats?.pending_appointments ?? 0} upcoming`} />
-          <StatCard label="Doctors"             value={stats?.total_doctors ?? "—"}            icon={<Stethoscope className="w-5 h-5" />}  gradient="linear-gradient(135deg,#059669,#34D399)" subtitle="on staff" />
-        </div>
+        {/* Stats — admin sees hospital-wide 4-card grid; doctors see their own overview panel */}
+        {role === "admin" ? (
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <StatCard label="Total Patients"       value={stats?.total_patients ?? "—"}           icon={<Users className="w-5 h-5" />}       gradient="linear-gradient(135deg,#0F766E,#06B6D4)" subtitle={`${stats?.new_patients_this_month ?? 0} new this month`} />
+            <StatCard label="High Risk"            value={stats?.high_risk_patients_count ?? "—"} icon={<ShieldAlert className="w-5 h-5" />} gradient="linear-gradient(135deg,#DC2626,#F87171)" subtitle="need attention" />
+            <StatCard label="Today's Appointments" value={stats?.total_appointments_today ?? "—"} icon={<CalendarCheck className="w-5 h-5" />} gradient="linear-gradient(135deg,#7C3AED,#A78BFA)" subtitle={`${stats?.pending_appointments ?? 0} upcoming`} />
+            <StatCard label="Doctors"              value={stats?.total_doctors ?? "—"}            icon={<Stethoscope className="w-5 h-5" />} gradient="linear-gradient(135deg,#059669,#34D399)" subtitle="on staff" />
+          </div>
+        ) : (
+          /* ── Doctor Overview Panel ──────────────────────────────────── */
+          <div className="space-y-4">
+            {/* 5-metric cards */}
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+              {/* Today's Patients */}
+              <motion.div
+                initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0 }}
+                className="bg-white rounded-2xl border border-gray-100 shadow-[var(--shadow-sm)] overflow-hidden"
+              >
+                <div className="h-1 rounded-t-2xl" style={{ background: "linear-gradient(90deg,#0F766E,#06B6D4)" }} />
+                <div className="p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="w-9 h-9 rounded-xl bg-teal-50 flex items-center justify-center">
+                      <Users className="w-4 h-4 text-teal-600" />
+                    </div>
+                    <span className="text-[10px] font-bold text-teal-700 bg-teal-50 border border-teal-100 px-2 py-0.5 rounded-full">TODAY</span>
+                  </div>
+                  <p className="text-3xl font-extrabold text-gray-900 leading-none">
+                    {doctorStats ? doctorStats.today_patients : <span className="text-gray-200 animate-pulse">—</span>}
+                  </p>
+                  <p className="text-xs text-gray-500 mt-1 font-medium">Today&apos;s Patients</p>
+                </div>
+              </motion.div>
+
+              {/* Critical Cases */}
+              <motion.div
+                initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}
+                className="bg-white rounded-2xl border border-gray-100 shadow-[var(--shadow-sm)] overflow-hidden"
+              >
+                <div className="h-1 rounded-t-2xl" style={{ background: "linear-gradient(90deg,#DC2626,#F87171)" }} />
+                <div className="p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="w-9 h-9 rounded-xl bg-red-50 flex items-center justify-center">
+                      <ShieldAlert className="w-4 h-4 text-red-600" />
+                    </div>
+                    {(doctorStats?.critical_cases ?? 0) > 0 && (
+                      <span className="text-[10px] font-bold text-red-700 bg-red-50 border border-red-100 px-2 py-0.5 rounded-full">URGENT</span>
+                    )}
+                  </div>
+                  <p className="text-3xl font-extrabold text-gray-900 leading-none">
+                    {doctorStats ? doctorStats.critical_cases : <span className="text-gray-200 animate-pulse">—</span>}
+                  </p>
+                  <p className="text-xs text-gray-500 mt-1 font-medium">Critical Cases</p>
+                </div>
+              </motion.div>
+
+              {/* Pending Reviews */}
+              <motion.div
+                initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}
+                className="bg-white rounded-2xl border border-gray-100 shadow-[var(--shadow-sm)] overflow-hidden"
+              >
+                <div className="h-1 rounded-t-2xl" style={{ background: "linear-gradient(90deg,#D97706,#F59E0B)" }} />
+                <div className="p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="w-9 h-9 rounded-xl bg-amber-50 flex items-center justify-center">
+                      <ClipboardList className="w-4 h-4 text-amber-600" />
+                    </div>
+                    {(doctorStats?.pending_reviews ?? 0) > 0 && (
+                      <span className="text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-100 px-2 py-0.5 rounded-full">ACTION</span>
+                    )}
+                  </div>
+                  <p className="text-3xl font-extrabold text-gray-900 leading-none">
+                    {doctorStats ? doctorStats.pending_reviews : <span className="text-gray-200 animate-pulse">—</span>}
+                  </p>
+                  <p className="text-xs text-gray-500 mt-1 font-medium">Pending Reviews</p>
+                </div>
+              </motion.div>
+
+              {/* Upcoming Video */}
+              <motion.div
+                initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}
+                className="bg-white rounded-2xl border border-gray-100 shadow-[var(--shadow-sm)] overflow-hidden"
+              >
+                <div className="h-1 rounded-t-2xl" style={{ background: "linear-gradient(90deg,#7C3AED,#A78BFA)" }} />
+                <div className="p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="w-9 h-9 rounded-xl bg-purple-50 flex items-center justify-center">
+                      <Video className="w-4 h-4 text-purple-600" />
+                    </div>
+                  </div>
+                  <p className="text-3xl font-extrabold text-gray-900 leading-none">
+                    {doctorStats ? doctorStats.upcoming_video : <span className="text-gray-200 animate-pulse">—</span>}
+                  </p>
+                  <p className="text-xs text-gray-500 mt-1 font-medium">Upcoming Video</p>
+                </div>
+              </motion.div>
+
+              {/* New Reports — spans 2 cols on mobile to complete the row */}
+              <motion.div
+                initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}
+                className="col-span-2 md:col-span-1 bg-white rounded-2xl border border-gray-100 shadow-[var(--shadow-sm)] overflow-hidden"
+              >
+                <div className="h-1 rounded-t-2xl" style={{ background: "linear-gradient(90deg,#059669,#34D399)" }} />
+                <div className="p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="w-9 h-9 rounded-xl bg-emerald-50 flex items-center justify-center">
+                      <Activity className="w-4 h-4 text-emerald-600" />
+                    </div>
+                    {(doctorStats?.new_reports ?? 0) > 0 && (
+                      <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-100 px-2 py-0.5 rounded-full">NEW</span>
+                    )}
+                  </div>
+                  <p className="text-3xl font-extrabold text-gray-900 leading-none">
+                    {doctorStats ? doctorStats.new_reports : <span className="text-gray-200 animate-pulse">—</span>}
+                  </p>
+                  <p className="text-xs text-gray-500 mt-1 font-medium">New Reports</p>
+                </div>
+              </motion.div>
+            </div>
+
+            {/* Today's Schedule */}
+            <motion.div
+              initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25 }}
+              className="bg-white rounded-2xl border border-gray-100 shadow-[var(--shadow-sm)] overflow-hidden"
+            >
+              <div className="h-1 w-full" style={{ background: "var(--gradient-hero)" }} />
+              <div className="px-5 py-4 border-b border-gray-50 flex items-center gap-3">
+                <div className="w-8 h-8 rounded-xl bg-teal-50 flex items-center justify-center shrink-0">
+                  <Clock className="w-4 h-4 text-teal-600" />
+                </div>
+                <div>
+                  <h2 className="font-bold text-[var(--text-primary)]">Today&apos;s Schedule</h2>
+                  <p className="text-sm text-gray-400 mt-0.5">
+                    {!doctorStats
+                      ? "Loading…"
+                      : doctorStats.today_schedule.length === 0
+                      ? "No appointments scheduled for today"
+                      : `${doctorStats.today_schedule.length} appointment${doctorStats.today_schedule.length !== 1 ? "s" : ""} today`}
+                  </p>
+                </div>
+              </div>
+
+              {!doctorStats ? (
+                <div className="p-6 space-y-3">
+                  {[1, 2, 3].map(i => <div key={i} className="h-14 rounded-xl skeleton" />)}
+                </div>
+              ) : doctorStats.today_schedule.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-10 text-gray-400">
+                  <CalendarCheck className="w-9 h-9 text-gray-200 mb-2" />
+                  <p className="text-sm">No patients scheduled for today</p>
+                </div>
+              ) : (
+                <div className="divide-y divide-gray-50">
+                  {doctorStats.today_schedule.map((apt, idx) => (
+                    <motion.div
+                      key={apt.id}
+                      initial={{ opacity: 0, x: -8 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: idx * 0.04 }}
+                      className="px-5 py-3.5 flex items-center gap-4 hover:bg-gray-50/60 transition-colors"
+                    >
+                      {/* Time */}
+                      <div className="w-14 shrink-0 text-center">
+                        <p className="text-sm font-bold text-gray-800">{apt.appointment_time}</p>
+                        <p className="text-[10px] text-gray-400 mt-0.5">
+                          {(() => {
+                            const [h] = apt.appointment_time.split(":").map(Number);
+                            return h < 12 ? "AM" : "PM";
+                          })()}
+                        </p>
+                      </div>
+
+                      {/* Divider dot */}
+                      <div className="w-2 h-2 rounded-full bg-gray-200 shrink-0" />
+
+                      {/* Patient + type */}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="text-sm font-semibold text-gray-800">{apt.patient_name}</p>
+                          <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                            apt.type === "video"
+                              ? "text-purple-700 bg-purple-50 border-purple-200"
+                              : "text-teal-700 bg-teal-50 border-teal-200"
+                          }`}>
+                            {apt.type === "video" ? <Video className="w-2.5 h-2.5" /> : <Stethoscope className="w-2.5 h-2.5" />}
+                            {apt.type === "video" ? "Video" : "In-Person"}
+                          </span>
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                            apt.status === "upcoming"
+                              ? "text-blue-700 bg-blue-50 border-blue-200"
+                              : "text-gray-500 bg-gray-50 border-gray-200"
+                          }`}>
+                            {apt.status}
+                          </span>
+                        </div>
+                        {apt.reason && (
+                          <p className="text-xs text-gray-400 mt-0.5 truncate">{apt.reason}</p>
+                        )}
+                      </div>
+
+                      {/* Actions */}
+                      <div className="flex items-center gap-2 shrink-0">
+                        {apt.type === "video" && apt.video_url && apt.status === "upcoming" && (
+                          <a
+                            href={apt.video_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1.5 text-xs font-bold text-white px-3 py-1.5 rounded-lg transition-all"
+                            style={{ background: "linear-gradient(135deg,#7C3AED,#A78BFA)" }}
+                          >
+                            <Video className="w-3 h-3" /> Join
+                          </a>
+                        )}
+                        <a
+                          href={`/hospital/patients/${apt.patient_id}`}
+                          className="inline-flex items-center gap-1 text-xs font-semibold text-[var(--primary)] hover:underline"
+                        >
+                          <ExternalLink className="w-3 h-3" /> View
+                        </a>
+                      </div>
+                    </motion.div>
+                  ))}
+                </div>
+              )}
+            </motion.div>
+          </div>
+        )}
 
         {/* Pending Reviews — always visible so staff know it exists */}
         <div className="bg-white rounded-2xl border border-amber-200 shadow-[var(--shadow-sm)] overflow-hidden">

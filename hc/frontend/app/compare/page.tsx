@@ -12,6 +12,7 @@ import Navbar from "@/components/Navbar";
 import { ToastContainer, useToast } from "@/components/Toast";
 import PageHeader from "@/components/PageHeader";
 import { reportsApi, aiApi } from "@/lib/api";
+import { useLanguage } from "@/lib/i18n/LanguageContext";
 
 // Recharts is imported lazily at component level to avoid SSR hydration mismatch.
 // In Next.js App Router, even "use client" pages are server-rendered initially;
@@ -160,6 +161,7 @@ function ReportPicker({ reports, selected, onSelect, label }: {
 export default function ComparePage() {
   const router = useRouter();
   const { toasts, toast, removeToast } = useToast();
+  const { language } = useLanguage();
 
   const [reports, setReports]               = useState<Report[]>([]);
   const [loadingReports, setLoadingReports] = useState(true);
@@ -230,6 +232,7 @@ export default function ComparePage() {
         patient_name: Cookies.get("user_name") || "Patient",
         date_1: new Date(report1.created_at).toLocaleDateString("en-IN"),
         date_2: new Date(report2.created_at).toLocaleDateString("en-IN"),
+        language,
       };
       console.log("[Compare] Sending to /api/ai/compare, payload lengths:", {
         text1: payload.report_text_1.length, text2: payload.report_text_2.length,

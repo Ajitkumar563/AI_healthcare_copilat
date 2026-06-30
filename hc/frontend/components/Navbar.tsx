@@ -13,10 +13,12 @@ const NAV_LINKS: { href: string; tkey: TranslationKey }[] = [
   { href: "/dashboard",         tkey: "nav_dashboard"        },
   { href: "/chat",              tkey: "nav_chat"             },
   { href: "/compare",           tkey: "nav_compare"          },
+  { href: "/trends",            tkey: "nav_trends"           },
   { href: "/appointments",      tkey: "nav_appointments"     },
   { href: "/reminders",         tkey: "nav_reminders"        },
   { href: "/medicine-checker",  tkey: "nav_medicine_checker" },
   { href: "/timeline",          tkey: "nav_timeline"         },
+  { href: "/predictive",        tkey: "nav_predictive"       },
   { href: "/family",            tkey: "nav_family"           },
   { href: "/doctor",            tkey: "nav_doctorView"       },
   { href: "/insurance",         tkey: "nav_insurance"        },
@@ -27,6 +29,7 @@ const LANGUAGES: { code: Language; flag: string; label: string }[] = [
   { code: "hi",       flag: "🇮🇳", label: "हिंदी"     },
   { code: "hinglish", flag: "🇮🇳", label: "Hinglish" },
   { code: "ar",       flag: "🇸🇦", label: "العربية"  },
+  { code: "es",       flag: "🇪🇸", label: "Español"  },
   { code: "fr",       flag: "🇫🇷", label: "Français" },
 ];
 

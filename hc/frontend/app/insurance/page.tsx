@@ -11,6 +11,7 @@ import Cookies from "js-cookie";
 import Navbar from "@/components/Navbar";
 import { ToastContainer, useToast } from "@/components/Toast";
 import { reportsApi, aiApi } from "@/lib/api";
+import { useLanguage } from "@/lib/i18n/LanguageContext";
 
 interface Report {
   id: string; file_name: string; report_type: string;
@@ -65,6 +66,7 @@ function Section({ title, icon: Icon, children, defaultOpen = true }: {
 export default function InsurancePage() {
   const router = useRouter();
   const { toasts, toast, removeToast } = useToast();
+  const { language } = useLanguage();
   const [reports, setReports] = useState<Report[]>([]);
   const [selectedId, setSelectedId] = useState("");
   const [loading, setLoading] = useState(false);
@@ -87,7 +89,7 @@ export default function InsurancePage() {
     if (!report?.raw_text) { toast("Select a report with text first.", "error"); return; }
     setLoading(true); setResult(null);
     try {
-      const res = await aiApi.insuranceHelper({ report_text: report.raw_text, patient_name: Cookies.get("user_name") || "Patient" });
+      const res = await aiApi.insuranceHelper({ report_text: report.raw_text, patient_name: Cookies.get("user_name") || "Patient", language });
       if (res.data?.data) {
         setResult(res.data.data);
         setAiAvailable(res.data.ai_available !== false);

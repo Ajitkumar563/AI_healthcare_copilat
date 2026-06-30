@@ -2,9 +2,19 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useState } from "react";
-import { LogOut, Menu, X, Building2, Users, Stethoscope, CalendarCheck, LayoutDashboard } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
+import { LogOut, Menu, X, Building2, Users, Stethoscope, CalendarCheck, LayoutDashboard, Shield, Globe, CreditCard } from "lucide-react";
 import Cookies from "js-cookie";
+import { useLanguage } from "@/lib/i18n/LanguageContext";
+import type { Language } from "@/lib/i18n/translations";
+
+const LANGUAGES: { code: Language; flag: string; label: string }[] = [
+  { code: "en",       flag: "🇬🇧", label: "English"  },
+  { code: "hi",       flag: "🇮🇳", label: "हिंदी"     },
+  { code: "ar",       flag: "🇸🇦", label: "العربية"  },
+  { code: "es",       flag: "🇪🇸", label: "Español"  },
+  { code: "fr",       flag: "🇫🇷", label: "Français" },
+];
 
 interface HospitalNavbarProps {
   userName?: string;
@@ -21,12 +31,29 @@ const ADMIN_LINKS = [
   ...STAFF_LINKS.slice(0, 2),
   { href: "/hospital/doctors",   label: "Doctors",     icon: Stethoscope },
   STAFF_LINKS[2],
+  { href: "/hospital/admin",     label: "Admin Panel", icon: Shield       },
+  { href: "/hospital/billing",   label: "Billing",     icon: CreditCard   },
 ];
 
 export default function HospitalNavbar({ userName, role }: HospitalNavbarProps) {
   const pathname = usePathname();
   const router   = useRouter();
+  const { language, setLanguage } = useLanguage();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [langOpen,   setLangOpen]   = useState(false);
+  const langRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (langRef.current && !langRef.current.contains(e.target as Node)) {
+        setLangOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  const currentLang = LANGUAGES.find(l => l.code === language) ?? LANGUAGES[0];
 
   const links = role === "admin" ? ADMIN_LINKS : STAFF_LINKS;
 
@@ -104,6 +131,40 @@ export default function HospitalNavbar({ userName, role }: HospitalNavbarProps) 
               </div>
             </div>
 
+            {/* Language switcher */}
+            <div ref={langRef} className="relative">
+              <button
+                onClick={() => setLangOpen(o => !o)}
+                title="Change language"
+                suppressHydrationWarning
+                className="flex items-center gap-1.5 px-2.5 py-2 rounded-xl border border-gray-200 bg-white hover:border-teal-300 hover:bg-teal-50/40 text-sm font-medium text-gray-600 transition-all"
+              >
+                <Globe className="w-3.5 h-3.5 text-gray-400" />
+                <span className="hidden sm:inline">{currentLang.flag}</span>
+                <span className="hidden md:inline text-xs">{currentLang.label}</span>
+              </button>
+
+              {langOpen && (
+                <div className="absolute right-0 top-full mt-1.5 w-44 bg-white rounded-2xl border border-gray-100 shadow-xl z-50 overflow-hidden py-1">
+                  {LANGUAGES.map(lang => (
+                    <button
+                      key={lang.code}
+                      onClick={() => { setLanguage(lang.code); setLangOpen(false); }}
+                      className={`w-full flex items-center gap-2.5 px-4 py-2.5 text-sm transition-all ${
+                        language === lang.code
+                          ? "text-white font-semibold"
+                          : "text-gray-700 hover:bg-teal-50"
+                      }`}
+                      style={language === lang.code ? { background: "var(--gradient-hero)" } : {}}
+                    >
+                      <span className="text-base">{lang.flag}</span>
+                      <span>{lang.label}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
             <button
               onClick={handleLogout}
               suppressHydrationWarning
@@ -145,6 +206,28 @@ export default function HospitalNavbar({ userName, role }: HospitalNavbarProps) 
                 </Link>
               );
             })}
+            {/* Mobile language picker */}
+            <div className="pt-2 pb-1 px-4">
+              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wide mb-2">Language</p>
+              <div className="grid grid-cols-2 gap-1.5">
+                {LANGUAGES.map(lang => (
+                  <button
+                    key={lang.code}
+                    onClick={() => { setLanguage(lang.code); setMobileOpen(false); }}
+                    className={`flex items-center gap-2 px-3 py-2 rounded-xl text-sm border transition-all ${
+                      language === lang.code
+                        ? "text-white border-transparent"
+                        : "text-gray-600 border-gray-200 hover:bg-teal-50"
+                    }`}
+                    style={language === lang.code ? { background: "var(--gradient-hero)" } : {}}
+                  >
+                    <span>{lang.flag}</span>
+                    <span className="font-medium">{lang.label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
             <button
               onClick={handleLogout}
               className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-red-500 hover:bg-red-50 transition-all mt-2"

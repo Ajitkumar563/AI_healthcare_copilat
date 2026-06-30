@@ -11,39 +11,49 @@ import {
   ShieldAlert,
   CheckCircle2,
   HelpCircle,
+  Volume2,
+  VolumeX,
 } from "lucide-react";
 import { aiApi } from "@/lib/api";
 import Cookies from "js-cookie";
 import { useLanguage } from "@/lib/i18n/LanguageContext";
+import { useVoice, VOICE_LANG_MAP } from "@/hooks/useVoice";
+import { VoiceInput } from "@/components/VoiceInput";
 
 
 interface Condition {
-  condition: string;
+  condition:   string;
   probability: string;
   description: string;
 }
 
 interface Result {
-  possible_conditions: Condition[];
-  risk_level: string;
-  risk_explanation: string;
-  follow_up_questions: string[];
-  recommendations: string[];
-  emergency: boolean;
-  emergency_message: string;
+  possible_conditions:  Condition[];
+  risk_level:           string;
+  risk_explanation:     string;
+  follow_up_questions:  string[];
+  recommendations:      string[];
+  emergency:            boolean;
+  emergency_message:    string;
 }
 
 export default function SymptomsPage() {
-  const router = useRouter();
-  const { language } = useLanguage();
-  const [userName, setUserName] = useState("");
-  const [symptoms, setSymptoms] = useState("");
-  const [age, setAge] = useState("25");
-  const [gender, setGender] = useState("not specified");
-  const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<Result | null>(null);
-  const [error, setError] = useState("");
+  const router        = useRouter();
+  const { language }  = useLanguage();
+  const voice         = useVoice();
 
+  const [userName, setUserName] = useState("");
+  const [symptoms,  setSymptoms] = useState("");
+  const [age,       setAge]      = useState("25");
+  const [gender,    setGender]   = useState("not specified");
+  const [loading,   setLoading]  = useState(false);
+  const [result,    setResult]   = useState<Result | null>(null);
+  const [error,     setError]    = useState("");
+
+  // Web Speech API language code derived from the app language setting
+  const voiceLang = VOICE_LANG_MAP[language] ?? "en-IN";
+
+  // ── Auth guard ─────────────────────────────────────────────────────────────
   useEffect(() => {
     const token = Cookies.get("access_token");
     if (!token) {
@@ -52,6 +62,13 @@ export default function SymptomsPage() {
     }
     setUserName(Cookies.get("user_name") || "there");
   }, [router]);
+
+  // ── Sync voice transcript → symptoms textarea (live as user speaks) ────────
+  useEffect(() => {
+    if (voice.transcript) {
+      setSymptoms(voice.transcript);
+    }
+  }, [voice.transcript]);
 
   const handleLogout = () => {
     Cookies.remove("access_token");
@@ -63,6 +80,9 @@ export default function SymptomsPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!symptoms.trim()) return;
+
+    // Stop any TTS before starting the request
+    voice.stopSpeaking();
     setError("");
     setLoading(true);
     setResult(null);
@@ -74,7 +94,18 @@ export default function SymptomsPage() {
         gender,
         language,
       });
-      setResult(res.data.result);
+
+      const data: Result = res.data.result;
+      setResult(data);
+
+      // Auto-read the risk explanation aloud after the AI responds
+      if (data?.risk_explanation) {
+        const prefix =
+          data.risk_level
+            ? `Risk level: ${data.risk_level}. `
+            : "";
+        voice.speak(`${prefix}${data.risk_explanation}`, voiceLang);
+      }
     } catch {
       setError("Something went wrong. Please try again.");
     } finally {
@@ -82,31 +113,30 @@ export default function SymptomsPage() {
     }
   };
 
+  // ── Helpers ────────────────────────────────────────────────────────────────
   const getRiskStyle = (risk: string) => {
     switch (risk?.toLowerCase()) {
       case "high":
-        return { bg: "bg-[var(--coral)]/10", text: "text-[var(--coral)]", icon: ShieldAlert };
+        return { bg: "bg-[var(--coral)]/10", text: "text-[var(--coral)]",  icon: ShieldAlert   };
       case "medium":
-        return { bg: "bg-[var(--gold)]/10", text: "text-[var(--gold)]", icon: AlertTriangle };
+        return { bg: "bg-[var(--gold)]/10",  text: "text-[var(--gold)]",   icon: AlertTriangle };
       default:
-        return { bg: "bg-[var(--sage)]", text: "text-[var(--teal)]", icon: CheckCircle2 };
+        return { bg: "bg-[var(--sage)]",     text: "text-[var(--teal)]",   icon: CheckCircle2  };
     }
   };
 
   const getProbabilityStyle = (prob: string) => {
     switch (prob?.toLowerCase()) {
-      case "high":
-        return "bg-[var(--coral)]/10 text-[var(--coral)]";
-      case "medium":
-        return "bg-[var(--gold)]/10 text-[var(--gold)]";
-      default:
-        return "bg-[var(--sage)] text-[var(--teal)]";
+      case "high":   return "bg-[var(--coral)]/10 text-[var(--coral)]";
+      case "medium": return "bg-[var(--gold)]/10  text-[var(--gold)]";
+      default:       return "bg-[var(--sage)] text-[var(--teal)]";
     }
   };
 
   return (
     <div className="min-h-screen bg-[var(--cream)]">
-      {/* Nav */}
+
+      {/* ── Nav ─────────────────────────────────────────────────────────────── */}
       <nav className="max-w-4xl mx-auto px-6 py-6 flex items-center justify-between">
         <Link href="/" className="flex items-center gap-2">
           <div className="w-8 h-8 rounded-lg bg-[var(--teal)] flex items-center justify-center">
@@ -137,27 +167,70 @@ export default function SymptomsPage() {
             How are you feeling, {userName}?
           </h1>
           <p className="text-[var(--charcoal)]/55">
-            Describe your symptoms in your own words. We&apos;ll help you understand what might be going on.
+            Describe your symptoms in your own words — or tap the mic to speak.
+            We&apos;ll help you understand what might be going on.
           </p>
         </div>
 
-        {/* Input form */}
+        {/* ── Input form ──────────────────────────────────────────────────────── */}
         <div className="bg-white rounded-3xl border border-[var(--sage)] p-6 mb-6">
           <form onSubmit={handleSubmit} className="space-y-4">
+
+            {/* Symptoms textarea + voice input */}
             <div>
-              <label className="block text-sm font-medium text-[var(--charcoal)]/70 mb-1.5">
-                What&apos;s going on?
-              </label>
+              {/* Label row: "What's going on?" on the left, mic button on the right */}
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-sm font-medium text-[var(--charcoal)]/70">
+                  What&apos;s going on?
+                </label>
+
+                <div className="flex items-center gap-2.5">
+                  {/* Voice error hint — tiny, inline */}
+                  {voice.error && (
+                    <span className="text-[11px] text-[var(--coral)] max-w-[180px] truncate">
+                      {voice.error}
+                    </span>
+                  )}
+
+                  <VoiceInput
+                    isListening    ={voice.isListening}
+                    isSpeaking     ={voice.isSpeaking}
+                    isSupported    ={voice.isSupported}
+                    onStart        ={() => voice.startListening(voiceLang)}
+                    onStop         ={voice.stopListening}
+                    onStopSpeaking ={voice.stopSpeaking}
+                    disabled       ={loading}
+                    size           ="sm"
+                  />
+                </div>
+              </div>
+
               <textarea
                 required
                 rows={4}
                 value={symptoms}
                 onChange={(e) => setSymptoms(e.target.value)}
-                placeholder="e.g. I have had a fever and cough for 3 days, with body ache and mild headache..."
-                className="w-full px-4 py-3 rounded-xl border border-[var(--sage)] focus:border-[var(--teal)] focus:outline-none focus:ring-2 focus:ring-[var(--teal)]/10 transition-all text-sm resize-none"
+                placeholder="e.g. I have had a fever and cough for 3 days, with body ache and mild headache…"
+                className={[
+                  "w-full px-4 py-3 rounded-xl border transition-all text-sm resize-none",
+                  "focus:outline-none focus:ring-2 focus:ring-[var(--teal)]/10",
+                  voice.isListening
+                    ? "border-red-400 ring-2 ring-red-100"
+                    : "border-[var(--sage)] focus:border-[var(--teal)]",
+                ].join(" ")}
               />
+
+              {/* Live interim transcript hint while mic is active */}
+              {voice.isListening && (
+                <p className="mt-1.5 text-[11px] text-[var(--charcoal)]/45 italic pl-1">
+                  {voice.transcript
+                    ? `"${voice.transcript}"`
+                    : "Listening — please speak…"}
+                </p>
+              )}
             </div>
 
+            {/* Age / gender row — unchanged */}
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-[var(--charcoal)]/70 mb-1.5">
@@ -202,7 +275,7 @@ export default function SymptomsPage() {
             >
               {loading ? (
                 <>
-                  <Loader2 className="w-4 h-4 animate-spin" /> Checking...
+                  <Loader2 className="w-4 h-4 animate-spin" /> Checking…
                 </>
               ) : (
                 <>
@@ -213,9 +286,11 @@ export default function SymptomsPage() {
           </form>
         </div>
 
-        {/* Results */}
+        {/* ── Results ─────────────────────────────────────────────────────────── */}
         {result && (
           <div className="space-y-4">
+
+            {/* Emergency banner */}
             {result.emergency && (
               <div className="bg-[var(--coral)] text-white rounded-2xl p-5 flex items-start gap-3">
                 <ShieldAlert className="w-5 h-5 mt-0.5 shrink-0" />
@@ -226,19 +301,53 @@ export default function SymptomsPage() {
               </div>
             )}
 
-            {/* Risk level */}
+            {/* Risk level card + listen / stop controls */}
             {(() => {
               const style = getRiskStyle(result.risk_level);
-              const Icon = style.icon;
+              const Icon  = style.icon;
               return (
                 <div className={`rounded-2xl p-5 ${style.bg}`}>
-                  <div className="flex items-center gap-2 mb-2">
-                    <Icon className={`w-5 h-5 ${style.text}`} />
-                    <span className={`font-semibold ${style.text}`}>
-                      Risk level: {result.risk_level?.toUpperCase()}
-                    </span>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Icon className={`w-5 h-5 ${style.text}`} />
+                        <span className={`font-semibold ${style.text}`}>
+                          Risk level: {result.risk_level?.toUpperCase()}
+                        </span>
+                      </div>
+                      <p className="text-sm text-[var(--charcoal)]/70">
+                        {result.risk_explanation}
+                      </p>
+                    </div>
+
+                    {/* Voice controls for result — only when TTS is available */}
+                    {voice.isSupported && (
+                      <div className="flex flex-col items-center gap-1 shrink-0 mt-0.5">
+                        {voice.isSpeaking ? (
+                          <button
+                            type="button"
+                            onClick={voice.stopSpeaking}
+                            className="flex items-center gap-1 text-xs text-[var(--charcoal)]/50 hover:text-[var(--coral)] transition-colors"
+                          >
+                            <VolumeX className="w-4 h-4" /> Stop
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              voice.speak(
+                                `Risk level: ${result.risk_level}. ${result.risk_explanation}`,
+                                voiceLang
+                              )
+                            }
+                            className="flex items-center gap-1 text-xs text-[var(--charcoal)]/50 hover:text-[var(--teal)] transition-colors"
+                          >
+                            <Volume2 className="w-4 h-4" /> Listen
+                          </button>
+                        )}
+                      </div>
+                    )}
                   </div>
-                  <p className="text-sm text-[var(--charcoal)]/70">{result.risk_explanation}</p>
                 </div>
               );
             })()}
@@ -255,7 +364,9 @@ export default function SymptomsPage() {
                         {c.probability} likelihood
                       </span>
                     </div>
-                    <p className="text-sm text-[var(--charcoal)]/65 leading-relaxed">{c.description}</p>
+                    <p className="text-sm text-[var(--charcoal)]/65 leading-relaxed">
+                      {c.description}
+                    </p>
                   </div>
                 ))}
               </div>
@@ -295,9 +406,11 @@ export default function SymptomsPage() {
               </ul>
             </div>
 
+            {/* Disclaimer */}
             <div className="flex items-start gap-2 text-xs text-[var(--charcoal)]/40 bg-white rounded-xl p-4 border border-[var(--sage)]">
               <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
-              This is AI-generated guidance based on the information you provided. It is not a medical diagnosis. Please consult a doctor for proper evaluation.
+              This is AI-generated guidance based on the information you provided. It is not a medical
+              diagnosis. Please consult a doctor for proper evaluation.
             </div>
           </div>
         )}

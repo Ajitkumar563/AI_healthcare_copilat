@@ -4,14 +4,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import os
 import re
 import json
-import io
 import asyncio
 
 from datetime import date as _date
 from sqlalchemy import select
 from database.db import get_db
 from models.models import Symptom, User, Report
-from core.security import get_optional_user, get_current_user_dep
+from core.security import get_optional_user
 from services.ocr_service import extract_text
 from services.email_service import send_emergency_email
 from services.whatsapp_service import send_whatsapp_message
@@ -72,6 +71,7 @@ class CompareRequest(BaseModel):
     patient_name: str = "Patient"
     date_1: str = "Previous"
     date_2: str = "Recent"
+    language: str = "en"
 
 class DoctorSummaryRequest(BaseModel):
     report_text: str
@@ -90,8 +90,12 @@ class MedicineInteractionRequest(BaseModel):
 
 
 # ─────────────────────────────────────────────
-# Gemini API helpers
+# Gemini API helpers  (google-genai)
 # ─────────────────────────────────────────────
+
+_MODEL_FAST = "gemini-2.0-flash"   # fast / cheap — most endpoints
+_MODEL_FULL = "gemini-1.5-pro"     # full reasoning — complex medical analysis
+
 
 class AIUnavailableError(Exception):
     """Raised when the Gemini API key is missing, quota is exceeded, or the
@@ -100,7 +104,7 @@ class AIUnavailableError(Exception):
 
 
 def _get_gemini_client():
-    """Lazy-initialise a google.genai Client.
+    """Lazy-initialise a Gemini client (google-genai).
 
     Raises AIUnavailableError if the key is not configured.
     """
@@ -113,7 +117,7 @@ def _get_gemini_client():
         return genai.Client(api_key=api_key)
     except ImportError:
         raise AIUnavailableError(
-            "google-genai is not installed. "
+            "google-genai package is not installed. "
             "Run: pip install google-genai"
         )
 
@@ -125,24 +129,24 @@ def _is_quota_error(e: Exception) -> bool:
     keywords = [
         "quota", "rate", "429", "resource exhausted",
         "permission denied", "unauthenticated", "api key", "credential",
-        "billing", "invalid api key",
+        "billing", "invalid api key", "too many requests", "rate limit",
     ]
-    # Also catch google.api_core exception classes by name
     class_name = type(e).__name__.lower()
     return (
         any(k in msg for k in keywords)
+        or "quota" in class_name
         or "resourceexhausted" in class_name
-        or "permissiondenied" in class_name
-        or "unauthenticated" in class_name
+        or getattr(e, "status_code", None) == 429
+        or getattr(e, "code", None) == 429
     )
 
 
-def call_gemini(prompt: str) -> str:
+def call_ai(prompt: str, model: str = _MODEL_FAST) -> str:
     """Call Gemini with a text prompt and return the response text."""
     client = _get_gemini_client()
     try:
         response = client.models.generate_content(
-            model="gemini-2.5-flash",
+            model=model,
             contents=prompt,
         )
         return response.text.strip()
@@ -155,9 +159,9 @@ def call_gemini(prompt: str) -> str:
 
 
 def _clean_json_text(raw: str) -> str:
-    """Sanitise raw Gemini text so json.loads() can parse it reliably.
+    """Strip markdown fences, trailing commas, and leading prose from a JSON string.
 
-    Handles the three most common failure modes:
+    Handles the three most common failure modes from LLMs:
     1. Markdown code fences  (```json ... ```)
     2. Trailing commas before } or ]  (invalid JSON but valid JS)
     3. Leading/trailing non-JSON prose before the first { or [
@@ -191,38 +195,30 @@ def _clean_json_text(raw: str) -> str:
     return text[start:end]
 
 
-def call_gemini_json(prompt: str) -> dict:
-    """Call Gemini in structured-JSON mode and return a parsed dict.
+def call_ai_json(prompt: str, model: str = _MODEL_FAST) -> dict:
+    """Call Gemini in JSON mode and return a parsed dict.
 
-    Uses response_mime_type='application/json' so Gemini skips markdown
-    fences and returns valid JSON directly.  _clean_json_text() is applied
-    as a second-pass guard in case the model still adds stray characters.
-    Raises AIUnavailableError (not a raw JSONDecodeError) on parse failure
-    so the caller's except-AIUnavailableError branch handles it cleanly.
+    Uses response_mime_type=application/json so the model skips markdown fences
+    and returns valid JSON directly.  _clean_json_text() is applied as a
+    second-pass guard.  Raises AIUnavailableError on parse failure so the
+    caller's except-AIUnavailableError branch handles it cleanly.
     """
-    api_key = os.getenv("GEMINI_API_KEY", "")
-    if not api_key or api_key == "your-gemini-api-key-here":
-        raise AIUnavailableError("GEMINI_API_KEY is not set in .env")
-
     try:
-        from google import genai
         from google.genai import types
     except ImportError:
-        raise AIUnavailableError(
-            "google-genai is not installed. Run: pip install google-genai"
-        )
+        raise AIUnavailableError("google-genai package is not installed. Run: pip install google-genai")
 
-    client = genai.Client(api_key=api_key)
+    client = _get_gemini_client()
 
     try:
         response = client.models.generate_content(
-            model="gemini-2.5-flash",
+            model=model,
             contents=prompt,
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json"
-            ),
+            config=types.GenerateContentConfig(response_mime_type="application/json"),
         )
         raw = response.text.strip()
+    except AIUnavailableError:
+        raise
     except Exception as e:
         if _is_quota_error(e):
             raise AIUnavailableError(f"Gemini API unavailable: {e}")
@@ -240,38 +236,31 @@ def call_gemini_json(prompt: str) -> dict:
         )
 
 
-def call_gemini_multimodal_json(prompt: str, image_bytes: bytes) -> dict:
-    """Pass an image + text prompt to Gemini and return parsed JSON.
+def call_gemini_multimodal_json(image_bytes: bytes, mime_type: str, prompt: str) -> dict:
+    """Send an image + text prompt to Gemini Vision and return a parsed JSON dict.
 
-    Uses JSON mode (response_mime_type) and the same _clean_json_text()
-    guard as call_gemini_json().  Used by /prescription for image inputs.
+    Used for prescription image extraction where the raw image yields better
+    accuracy than OCR text alone.
     """
     try:
-        import PIL.Image
-        from google import genai
         from google.genai import types
     except ImportError:
-        raise AIUnavailableError(
-            "google-genai or Pillow not installed. "
-            "Run: pip install google-genai Pillow"
-        )
+        raise AIUnavailableError("google-genai package is not installed. Run: pip install google-genai")
 
-    api_key = os.getenv("GEMINI_API_KEY", "")
-    if not api_key or api_key == "your-gemini-api-key-here":
-        raise AIUnavailableError("GEMINI_API_KEY is not set in .env")
-
-    client = genai.Client(api_key=api_key)
-    image = PIL.Image.open(io.BytesIO(image_bytes))
+    client = _get_gemini_client()
 
     try:
         response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=[prompt, image],
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json"
-            ),
+            model=_MODEL_FAST,  # Flash handles vision well and is faster
+            contents=[
+                types.Part.from_bytes(data=image_bytes, mime_type=mime_type),
+                prompt,
+            ],
+            config=types.GenerateContentConfig(response_mime_type="application/json"),
         )
         raw = response.text.strip()
+    except AIUnavailableError:
+        raise
     except Exception as e:
         if _is_quota_error(e):
             raise AIUnavailableError(f"Gemini API unavailable: {e}")
@@ -281,11 +270,7 @@ def call_gemini_multimodal_json(prompt: str, image_bytes: bytes) -> dict:
     try:
         return json.loads(cleaned)
     except json.JSONDecodeError as exc:
-        print(f"[Gemini multimodal JSON] Parse error: {exc}")
-        print(f"[Gemini multimodal JSON] Raw response (first 500 chars): {raw[:500]}")
-        raise AIUnavailableError(
-            f"Gemini returned malformed JSON ({exc}). Please retry."
-        )
+        raise AIUnavailableError(f"Gemini returned malformed JSON ({exc}).")
 
 
 # ─────────────────────────────────────────────
@@ -437,11 +422,11 @@ def production_text_parser(text: str, patient_name: str):
 
 
 def _compare_reports_regex(text1: str, text2: str, patient_name: str, date_1: str, date_2: str) -> dict:
-    """Regex-based comparison fallback when Gemini is unavailable.
+    """Regex-based comparison fallback when AI is unavailable.
 
     Extracts known numeric lab parameters from both texts and categorises
     changes as improved / worsened / stable relative to normal ranges.
-    Returns the same shape as the Gemini compare response so the frontend
+    Returns the same shape as the AI compare response so the frontend
     renders identically.
     """
     # (name, regex_pattern, min_plausible, max_plausible,
@@ -524,7 +509,7 @@ def _compare_reports_regex(text1: str, text2: str, patient_name: str, date_1: st
         summary = (
             f"No common measurable parameters were found between the {date_1} and {date_2} reports "
             f"for {patient_name}. Upload standard lab reports (CBC, LFT, thyroid, etc.) for a detailed comparison. "
-            "AI-powered comparison is also unavailable — check your Gemini API key."
+            "AI-powered comparison is also unavailable — check your GEMINI_API_KEY."
         )
     else:
         parts = []
@@ -557,6 +542,7 @@ _LANG_INSTRUCTIONS: dict[str, str] = {
     ),
     "ar": "Respond in Arabic. Use simple, warm language.",
     "fr": "Respond in French. Use simple, warm language.",
+    "es": "Respond in Spanish. Use simple, warm language suitable for patients.",
 }
 
 
@@ -607,7 +593,7 @@ Important rules:
 Report text:
 {report_text[:5000]}"""
 
-        report = call_gemini_json(prompt)
+        report = call_ai_json(prompt, _MODEL_FULL)
         return {"status": "success", "success": True, "ai_available": True, "error": None, "report": report}
 
     except AIUnavailableError as e:
@@ -615,7 +601,7 @@ Report text:
         parsed_report = production_text_parser(report_text, request.patient_name)
         return {
             "status": "success", "success": True, "ai_available": False,
-            "message": "AI features unavailable — please check your Gemini API key. Showing regex-based analysis.",
+            "message": "AI features unavailable — please check your GEMINI_API_KEY. Showing regex-based analysis.",
             "error": None, "report": parsed_report
         }
     except Exception as e:
@@ -654,7 +640,7 @@ Return ONLY valid JSON, no markdown:
   "emergency": <true|false>,
   "emergency_message": "<message if emergency else empty string>"
 }}{_lang_note(request.language)}"""
-        result = call_gemini_json(prompt)
+        result = call_ai_json(prompt)
 
     except AIUnavailableError:
         ai_available = False
@@ -725,7 +711,7 @@ Return ONLY valid JSON, no markdown:
         "success": True,
         "ai_available": ai_available,
         "message": (
-            "AI features unavailable — please check your Gemini API key. Showing rule-based analysis."
+            "AI features unavailable — please check your GEMINI_API_KEY. Showing rule-based analysis."
             if not ai_available else None
         ),
         "error": None,
@@ -760,7 +746,7 @@ Return ONLY valid JSON, no markdown:
 }}
 
 Use Indian food options primarily. Be specific with portions.{_lang_note(request.language)}"""
-        result = call_gemini_json(prompt)
+        result = call_ai_json(prompt)
         return {"status": "success", "success": True, "ai_available": True, "error": None, "plan": result}
 
     except AIUnavailableError as e:
@@ -770,7 +756,7 @@ Use Indian food options primarily. Be specific with portions.{_lang_note(request
 
     return {
         "status": "success", "success": True, "ai_available": False,
-        "message": "AI features unavailable — please check your Gemini API key. Showing standard diet plan.",
+        "message": "AI features unavailable — please check your GEMINI_API_KEY. Showing standard diet plan.",
         "error": None,
         "plan": {
             "summary": "This is a custom metabolic recovery diet tailored to replenish vital micro-nutrients, balance systemic hormone thresholds, and support sustained energy levels throughout the day.",
@@ -795,6 +781,8 @@ async def chat_with_report(request: ChatRequest):
         raise HTTPException(status_code=400, detail="report_text and message are required")
 
     try:
+        from google.genai import types
+
         lang_instruction = _LANG_INSTRUCTIONS.get(
             request.language, "Respond in English. Use simple, warm language."
         )
@@ -810,22 +798,23 @@ RULES:
 4. {lang_instruction}
 5. Be warm, clear, and use simple non-medical language."""
 
-        from google.genai import types
         client = _get_gemini_client()
 
-        # Gemini uses "model" instead of "assistant" for the AI role in history
-        history_for_gemini = [
-            types.Content(
-                role="user" if m.role == "user" else "model",
-                parts=[types.Part.from_text(m.content)],
+        # Build Gemini-style history (role must be "user" or "model")
+        history = []
+        for m in request.history:
+            role = "user" if m.role == "user" else "model"
+            history.append(
+                types.Content(
+                    role=role,
+                    parts=[types.Part.from_text(text=m.content)],
+                )
             )
-            for m in request.history
-        ]
 
         chat = client.chats.create(
-            model="gemini-2.5-flash",
+            model=_MODEL_FAST,
+            history=history,
             config=types.GenerateContentConfig(system_instruction=system_prompt),
-            history=history_for_gemini,
         )
         response = chat.send_message(request.message)
         reply = response.text.strip()
@@ -843,7 +832,7 @@ RULES:
     except AIUnavailableError:
         return {
             "success": False, "ai_available": False,
-            "message": "AI features unavailable — please check your Gemini API key.",
+            "message": "AI features unavailable — please check your GEMINI_API_KEY.",
             "reply": "AI service is temporarily unavailable. Please check that your GEMINI_API_KEY is set correctly and has sufficient quota.",
             "updated_history": []
         }
@@ -904,7 +893,7 @@ If a parameter is not in the report, assume normal (score 85) for that system.{_
 Report:
 {request.report_text[:4000]}"""
 
-        result = call_gemini_json(prompt)
+        result = call_ai_json(prompt, _MODEL_FULL)
 
         # ── Determine if any system is Critical ───────────────────────────────
         is_critical = (
@@ -967,7 +956,7 @@ Report:
         print(f"[AI] Gemini unavailable for risk-score: {e}")
         return {
             "success": True, "ai_available": False,
-            "message": "AI features unavailable — please check your Gemini API key. Showing default risk estimate.",
+            "message": "AI features unavailable — please check your GEMINI_API_KEY. Showing default risk estimate.",
             "data": _RISK_SCORE_FALLBACK,
             "emergency_alert_sent": False,
             "whatsapp_alert_sent": False,
@@ -1011,9 +1000,9 @@ Return ONLY valid JSON, no markdown:
   ]
 }}
 
-Only include parameters that actually appear in both reports. Use positive numbers for change_percent."""
+Only include parameters that actually appear in both reports. Use positive numbers for change_percent.{_lang_note(request.language)}"""
 
-        result = call_gemini_json(prompt)
+        result = call_ai_json(prompt)
         return {"success": True, "ai_available": True, "data": result}
 
     except AIUnavailableError as e:
@@ -1067,14 +1056,14 @@ Return ONLY valid JSON, no markdown:
 Report text:
 {request.report_text[:4000]}"""
 
-        result = call_gemini_json(prompt)
+        result = call_ai_json(prompt, _MODEL_FULL)
         return {"success": True, "ai_available": True, "data": result}
 
     except AIUnavailableError as e:
         print(f"[AI] Gemini unavailable for doctor-summary: {e}")
         return {
             "success": False, "ai_available": False,
-            "message": "AI features unavailable — please check your Gemini API key. Doctor summary requires AI.",
+            "message": "AI features unavailable — please check your GEMINI_API_KEY. Doctor summary requires AI.",
             "data": None
         }
     except Exception as e:
@@ -1127,14 +1116,14 @@ Return ONLY valid JSON, no markdown:
   }}
 }}{_lang_note(request.language)}"""
 
-        result = call_gemini_json(prompt)
+        result = call_ai_json(prompt)
         return {"success": True, "ai_available": True, "data": result}
 
     except AIUnavailableError as e:
         print(f"[AI] Gemini unavailable for soap-notes: {e}")
         return {
             "success": False, "ai_available": False,
-            "message": "AI features unavailable — please check your Gemini API key. SOAP notes require AI.",
+            "message": "AI features unavailable — please check your GEMINI_API_KEY. SOAP notes require AI.",
             "data": None
         }
     except Exception as e:
@@ -1148,8 +1137,8 @@ Return ONLY valid JSON, no markdown:
 
 # ─────────────────────────────────────────────
 # ENDPOINT: Prescription Extraction
-# Uses Gemini multimodal for images (JPEG/PNG);
-# falls back to OCR text for PDFs.
+# Images are sent directly to Gemini Vision for best accuracy.
+# PDFs are OCR'd first and the text is sent to Gemini.
 # ─────────────────────────────────────────────
 
 @router.post("/prescription")
@@ -1186,19 +1175,19 @@ Return ONLY valid JSON, no markdown:
 
 Extract ALL medicines listed. If a field is unclear, use your best judgment based on context."""
 
-    # OCR text is always extracted (needed as PDF fallback and for storage)
+    # Always extract OCR text — needed for PDF path and as a fallback
     ocr_text = extract_text(file_bytes, file.content_type)
 
     try:
         if is_image:
-            # Pass the image directly to Gemini — no need for OCR
-            result = call_gemini_multimodal_json(prescription_prompt, file_bytes)
+            # Send image bytes directly to Gemini Vision for best accuracy
+            result = call_gemini_multimodal_json(file_bytes, file.content_type, prescription_prompt)
         else:
-            # PDF: use OCR text as input
+            # PDF: use OCR text
             if ocr_text.startswith("OCR_ERROR"):
-                raise HTTPException(status_code=422, detail=f"Could not read PDF: {ocr_text}")
+                raise HTTPException(status_code=422, detail=f"Could not read file: {ocr_text}")
             prompt_with_text = f"OCR Text from prescription:\n{ocr_text[:3000]}\n\n{prescription_prompt}"
-            result = call_gemini_json(prompt_with_text)
+            result = call_ai_json(prompt_with_text)
 
         return {"success": True, "ai_available": True, "data": result, "ocr_text": ocr_text}
 
@@ -1208,7 +1197,7 @@ Extract ALL medicines listed. If a field is unclear, use your best judgment base
         print(f"[AI] Gemini unavailable for prescription: {e}")
         return {
             "success": False, "ai_available": False,
-            "message": "AI features unavailable — please check your Gemini API key. Raw OCR text is shown below.",
+            "message": "AI features unavailable — please check your GEMINI_API_KEY. Raw OCR text is shown below.",
             "data": {
                 "doctor_name": "Unknown", "doctor_qualification": "Unknown",
                 "clinic_hospital": "Unknown", "date": "Unknown", "patient_name": "Unknown",
@@ -1283,7 +1272,7 @@ Rules:
 - Keep descriptions factual and concise (1-2 sentences each)"""
 
     try:
-        result = call_gemini_json(prompt)
+        result = call_ai_json(prompt)
         return {"success": True, "ai_available": True, **result}
 
     except AIUnavailableError as e:
@@ -1363,7 +1352,7 @@ async def get_daily_tip(
 Report excerpt: {latest_report_text}
 Return ONLY JSON (no markdown):
 {{"tip": "<one actionable tip, 1-2 sentences>", "category": "<Nutrition|Exercise|Sleep|Hydration|Mental Health>", "icon": "<one relevant emoji>"}}"""
-            tip_data = call_gemini_json(prompt)
+            tip_data = call_ai_json(prompt)
         except (AIUnavailableError, Exception):
             pass
 
@@ -1413,30 +1402,25 @@ Report:
 @router.post("/second-opinion")
 async def second_opinion(request: SecondOpinionRequest):
     """Run two independent Gemini analyses (temp 0.3 and 0.7) and return both + consensus."""
-    api_key = os.getenv("GEMINI_API_KEY", "")
-    if not api_key or api_key == "your-gemini-api-key-here":
-        return {"success": False, "ai_available": False, "message": "GEMINI_API_KEY is not configured."}
-
     try:
-        from google import genai
-        from google.genai import types
-    except ImportError:
-        return {"success": False, "ai_available": False, "message": "google-genai not installed."}
+        client = _get_gemini_client()
+    except AIUnavailableError as _e:
+        return {"success": False, "ai_available": False, "message": str(_e)}
 
-    client = genai.Client(api_key=api_key)
     report_text = request.report_text[:4000]
 
     def _call_with_temp(temp: float) -> dict:
+        from google.genai import types
         response = client.models.generate_content(
-            model="gemini-2.5-flash",
+            model=_MODEL_FULL,
             contents=_SECOND_OPINION_PROMPT.format(
                 name=request.patient_name,
                 age=request.age,
                 report=report_text,
             ),
             config=types.GenerateContentConfig(
-                response_mime_type="application/json",
                 temperature=temp,
+                response_mime_type="application/json",
             ),
         )
         raw = response.text.strip()
@@ -1519,7 +1503,7 @@ Rules:
 Report:
 {request.report_text[:3000]}"""
 
-        result = call_gemini_json(prompt)
+        result = call_ai_json(prompt)
         return {"success": True, "ai_available": True, "data": result}
 
     except AIUnavailableError as e:

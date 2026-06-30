@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
 
 from database.db import get_db
-from models.models import Doctor, Appointment, User
+from models.models import Doctor, Appointment, User, Notification
 from core.security import get_current_user_dep
 
 doctors_router = APIRouter()
@@ -226,6 +226,17 @@ async def book_appointment(
     )
     db.add(appointment)
     await db.flush()
+
+    db.add(Notification(
+        user_id=current_user.id,
+        type="appointment",
+        title="Appointment Confirmed",
+        message=(
+            f"Your {request.type} appointment with Dr. {doctor.name} is confirmed"
+            f" for {request.appointment_date} at {request.appointment_time}."
+        ),
+        action_url="/appointments",
+    ))
 
     return _appointment_to_dict(appointment, doctor)
 

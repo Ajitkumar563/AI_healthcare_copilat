@@ -122,6 +122,7 @@ export default function DashboardPage() {
   const [reports, setReports] = useState<Report[]>([]);
   const [remindersCount, setRemindersCount] = useState(0);
   const [familyCount, setFamilyCount] = useState(0);
+  const [highRiskFamily, setHighRiskFamily] = useState<{ id: string; name: string; risk_level: string }[]>([]);
   const [latestRisk, setLatestRisk] = useState<RiskData | null>(null);
   const [loadingData, setLoadingData] = useState(true);
   const [file, setFile] = useState<File | null>(null);
@@ -247,7 +248,11 @@ export default function DashboardPage() {
           if (latest?.raw_text) aiApi.riskScore({ report_text: latest.raw_text, patient_name: latest.file_name, language }).then(r => { if (r.data?.data) setLatestRisk(r.data.data); }).catch(() => {});
         }
         if (remRes.status === "fulfilled") setRemindersCount(remRes.value.data.length);
-        if (famRes.status === "fulfilled") setFamilyCount(famRes.value.data.length);
+        if (famRes.status === "fulfilled") {
+          const fam: { id: string; name: string; risk_level: string }[] = famRes.value.data;
+          setFamilyCount(fam.length);
+          setHighRiskFamily(fam.filter(m => ["High","Critical"].includes(m.risk_level)));
+        }
 
         // Feature 1: health score history (non-blocking)
         patientsApi.getHealthScoreHistory().then(r => setScoreHistory(r.data)).catch(() => {});
@@ -480,6 +485,27 @@ export default function DashboardPage() {
                   <X className="w-5 h-5" />
                 </button>
               </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Family high-risk alert */}
+        <AnimatePresence>
+          {highRiskFamily.length > 0 && (
+            <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}
+              className="flex items-start gap-3 px-4 py-3.5 rounded-2xl border border-orange-200 bg-orange-50 shadow-sm">
+              <AlertTriangle className="w-5 h-5 text-orange-500 shrink-0 mt-0.5" />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-bold text-orange-800">
+                  {highRiskFamily.length} family member{highRiskFamily.length !== 1 ? "s" : ""} need attention
+                </p>
+                <p className="text-xs text-orange-700 mt-0.5">
+                  {highRiskFamily.map(m => m.name).join(", ")} — {highRiskFamily.length === 1 ? "shows" : "show"} high or critical health risk.
+                </p>
+              </div>
+              <Link href="/family" className="text-xs font-bold text-orange-700 hover:text-orange-900 shrink-0 underline underline-offset-2">
+                View Family →
+              </Link>
             </motion.div>
           )}
         </AnimatePresence>
